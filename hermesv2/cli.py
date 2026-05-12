@@ -17,6 +17,7 @@ from prompt_toolkit.completion import Completer, Completion, FuzzyCompleter
 from prompt_toolkit.formatted_text import HTML, FormattedText
 from prompt_toolkit.styles import Style
 from rich.console import Console
+from rich.text import Text
 
 from hermesv2 import tui
 from hermesv2.agent import (
@@ -446,23 +447,63 @@ async def _handle_slash(
         console.print(f"  [dim]using[/] [cyan]{latest.name}[/] [dim]from {latest.parent}[/]")
         return ("retry", full_prompt)
 
-    # --- Maps (open in browser + ask agent for details) -------------------
+    # --- Maps (geocode + inline braille map + browser open + agent ask) ----
     if cmd == "/maps":
         if not arg:
             console.print("  [yellow]usage:[/] /maps <place or query>")
             return None
         import urllib.parse
+
+        from hermesv2 import maps as mapsmod
+
         encoded = urllib.parse.quote_plus(arg)
         url = f"https://www.google.com/maps/search/?api=1&query={encoded}"
+
+        console.print(f"  [dim]searching maps for[/] [cyan]{arg}[/]...")
+        # Size the braille map to the terminal width, with a sensible cap.
+        term_w = max(40, min(console.size.width - 6, 90))
+        result = mapsmod.render_map(arg, cols=term_w, rows=18)
+
+        if result["place"]:
+            title = Text()
+            title.append(" ", style="dim")
+            title.append(result["place"][:80], style="bold cyan")
+            if result["lat"] is not None and result["lon"] is not None:
+                title.append(
+                    f"  · {result['lat']:.4f}, {result['lon']:.4f}",
+                    style="dim",
+                )
+        else:
+            title = Text(f" {arg} ", style="bold cyan")
+
+        if result["braille"]:
+            from rich.panel import Panel as RPanel
+            panel = RPanel(
+                Text(result["braille"], style="bold cyan"),
+                title=title,
+                border_style="cyan",
+                padding=(0, 1),
+            )
+            console.print(panel)
+        else:
+            console.print(f"  [cyan]{result.get('place') or arg}[/]")
+            if result.get("lat") is not None:
+                console.print(
+                    f"  [dim]coords:[/] [cyan]{result['lat']:.4f}, {result['lon']:.4f}[/]"
+                )
+            if result.get("error"):
+                console.print(f"  [yellow]map render:[/] [dim]{result['error']}[/]")
+
         opened = _open_in_browser(url)
         if opened:
             console.print(f"  [green]opened in browser:[/] [cyan]{url}[/]")
         else:
             console.print(f"  [dim]copy and open in browser:[/] [cyan]{url}[/]")
+
         full_prompt = (
             f"Look up '{arg}' on Google Maps and tell me the address, hours, rating, "
-            f"and any notable details. Use web_search and web_fetch as needed. Cite sources.\n\n"
-            f"Maps URL for reference: {url}"
+            f"and any notable details. Use web_search and web_fetch as needed. "
+            f"Cite sources.\n\nMaps URL for reference: {url}"
         )
         return ("retry", full_prompt)
 
