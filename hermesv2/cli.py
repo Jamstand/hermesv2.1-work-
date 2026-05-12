@@ -516,7 +516,7 @@ async def _handle_slash(
     if cmd == "/model":
         # No-arg form opens the picker dialog. Pass a model name to skip it.
         if not arg:
-            chosen = await tui.pick_model_dialog(current_model)
+            chosen = await tui.pick_model_dialog(console, current_model)
             if not chosen:
                 console.print("  [dim](no change)[/]")
                 return None
@@ -661,6 +661,144 @@ def _find_repo_root() -> Path | None:
 def update() -> None:
     """`git pull` the latest hermesv2 from origin."""
     _run_update()
+
+
+@main.group(name="skill")
+def skill_group() -> None:
+    """Browse, install, and manage Claude Code skills."""
+
+
+@skill_group.command(name="list")
+def skill_list() -> None:
+    """List installed skills (in ~/.claude/skills/)."""
+    from hermesv2 import skills as skillsmod
+    entries = skillsmod.list_installed()
+    if not entries:
+        console.print("[dim]No skills installed.[/]")
+        return
+    for e in entries:
+        line = f"  [cyan]{e.name:<24}[/]"
+        if e.description:
+            line += f" [dim]{e.description}[/]"
+        if e.author:
+            line += f" [dim](by {e.author})[/]"
+        console.print(line)
+
+
+@skill_group.command(name="browse")
+def skill_browse() -> None:
+    """Show all skills in the curated marketplace."""
+    from hermesv2 import skills as skillsmod
+    items = skillsmod.browse()
+    if not items:
+        console.print("[dim]Marketplace is empty.[/]")
+        return
+    for item in items:
+        console.print(f"  [bold cyan]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
+        meta = []
+        if item.get("author"):
+            meta.append(f"by {item['author']}")
+        if item.get("tags"):
+            meta.append(", ".join(item["tags"]))
+        if meta:
+            console.print(f"    [dim]{' · '.join(meta)}[/]")
+
+
+@skill_group.command(name="search")
+@click.argument("query", nargs=-1, required=True)
+def skill_search(query: tuple[str, ...]) -> None:
+    """Filter the marketplace by name/description/tag."""
+    from hermesv2 import skills as skillsmod
+    q = " ".join(query)
+    matches = skillsmod.search(q)
+    if not matches:
+        console.print(f"[dim]No marketplace matches for '{q}'.[/]")
+        return
+    for item in matches:
+        console.print(f"  [cyan]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
+
+
+@skill_group.command(name="inspect")
+@click.argument("name")
+def skill_inspect(name: str) -> None:
+    """Print a preview of an installed skill's SKILL.md."""
+    from hermesv2 import skills as skillsmod
+    text = skillsmod.inspect_skill(name)
+    if text is None:
+        console.print(f"[red]not installed:[/] {name}")
+        sys.exit(1)
+    entry = skillsmod.get_installed(name)
+    if entry:
+        console.print(f"[bold cyan]{entry.name}[/]  [dim]{entry.description}[/]")
+        if entry.source:
+            console.print(f"[dim]source: {entry.source}[/]")
+        console.print(f"[dim]path: {entry.installed_at}[/]")
+        console.print()
+    console.print(text)
+
+
+@skill_group.command(name="install")
+@click.argument("identifier")
+@click.option("--name", default=None, help="Override the install directory name.")
+def skill_install(identifier: str, name: str | None) -> None:
+    """Install a skill by marketplace name, owner/repo, or git URL."""
+    from hermesv2 import skills as skillsmod
+    try:
+        entry = skillsmod.install(identifier, name=name)
+    except skillsmod.SkillError as e:
+        console.print(f"[red]install failed:[/] {e}")
+        sys.exit(1)
+    console.print(f"[green]installed[/] [cyan]{entry.name}[/] → [dim]{entry.installed_at}[/]")
+    if entry.description:
+        console.print(f"[dim]{entry.description}[/]")
+
+
+@skill_group.command(name="uninstall")
+@click.argument("name")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def skill_uninstall(name: str, yes: bool) -> None:
+    """Remove an installed skill."""
+    from hermesv2 import skills as skillsmod
+    entry = skillsmod.get_installed(name)
+    if entry is None:
+        console.print(f"[red]not installed:[/] {name}")
+        sys.exit(1)
+    if not yes:
+        console.print(f"  [yellow]about to delete:[/] [cyan]{entry.installed_at}[/]")
+        if not click.confirm("  proceed?", default=False):
+            console.print("[dim]cancelled.[/]")
+            return
+    try:
+        skillsmod.uninstall(name)
+    except skillsmod.SkillError as e:
+        console.print(f"[red]uninstall failed:[/] {e}")
+        sys.exit(1)
+    console.print(f"[green]uninstalled[/] {name}")
+
+
+@skill_group.command(name="snapshot")
+@click.argument("direction", type=click.Choice(["export", "import"]))
+@click.argument("path", type=click.Path())
+def skill_snapshot(direction: str, path: str) -> None:
+    """Export current skills to JSON, or import a snapshot back."""
+    import json
+
+    from hermesv2 import skills as skillsmod
+    p = Path(path)
+    if direction == "export":
+        p.write_text(json.dumps(skillsmod.snapshot_export(), indent=2))
+        console.print(f"[green]wrote snapshot →[/] [cyan]{p}[/]")
+    else:
+        try:
+            data = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            console.print(f"[red]bad snapshot file:[/] {e}")
+            sys.exit(1)
+        installed = skillsmod.snapshot_import(data)
+        if installed:
+            console.print(f"[green]installed {len(installed)} new skills:[/] {', '.join(installed)}")
+        else:
+            console.print("[dim]nothing new to install (all already present).[/]")
 
 
 @main.command(name="index")

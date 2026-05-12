@@ -1,0 +1,42 @@
+[
+  {
+    "name": "code-reviewer",
+    "description": "Reviews a PR or diff with structured, actionable feedback.",
+    "url": "https://github.com/anthropics/skills.git",
+    "subdir": "code-reviewer",
+    "author": "anthropic",
+    "tags": ["code", "review", "pr"]
+  },
+  {
+    "name": "init",
+    "description": "Initialize a CLAUDE.md file with codebase documentation.",
+    "url": "https://github.com/anthropics/skills.git",
+    "subdir": "init",
+    "author": "anthropic",
+    "tags": ["onboarding", "docs"]
+  },
+  {
+    "name": "simplify",
+    "description": "Review changed code for reuse, quality, and efficiency, then fix issues.",
+    "url": "https://github.com/anthropics/skills.git",
+    "subdir": "simplify",
+    "author": "anthropic",
+    "tags": ["refactor", "quality"]
+  },
+  {
+    "name": "security-review",
+    "description": "Complete a security review of the pending changes on the current branch.",
+    "url": "https://github.com/anthropics/skills.git",
+    "subdir": "security-review",
+    "author": "anthropic",
+    "tags": ["security", "review"]
+  },
+  {
+    "name": "claude-api",
+    "description": "Build, debug, and optimize Claude API / Anthropic SDK apps.",
+    "url": "https://github.com/anthropics/skills.git",
+    "subdir": "claude-api",
+    "author": "anthropic",
+    "tags": ["claude", "api", "sdk"]
+  }
+]

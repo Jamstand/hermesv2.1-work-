@@ -342,38 +342,54 @@ def find_recent_screenshot(extra_dirs: list[str] | None = None) -> Path | None:
     return best[1] if best else None
 
 
-async def pick_model_dialog(current_model: str) -> str | None:
-    """Interactive model picker. Returns chosen model_id, or None if cancelled."""
-    from prompt_toolkit.shortcuts import radiolist_dialog
-    from prompt_toolkit.styles import Style as PtkStyle
+async def pick_model_dialog(console: Console, current_model: str) -> str | None:
+    """Numbered-list model picker. Returns chosen model_id, or None if cancelled.
 
-    picker_style = PtkStyle.from_dict({
-        "dialog":             "bg:#1c1c2e",
-        "dialog frame.label": "bg:#1c1c2e #ff5fd7 bold",
-        "dialog.body":        "bg:#1c1c2e #87d7ff",
-        "dialog shadow":      "bg:#0c0c1e",
-        "radio":              "#87d7ff",
-        "radio-selected":     "#ff5fd7 bold",
-        "radio-checked":      "#ffffff bold",
-        "button":             "bg:#1c1c2e #87d7ff",
-        "button.focused":     "bg:#5f5fff #ffffff bold",
-        "button.arrow":       "#ff5fd7",
-    })
+    Was originally a full radiolist_dialog modal, but launching another
+    prompt-toolkit Application from inside the running chat session caused
+    key events not to register (Enter/Esc did nothing). Numbered input via
+    a fresh PromptSession is bulletproof and works in every terminal.
+    """
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.formatted_text import HTML
 
-    # Build the values list with the current model labelled.
-    values: list[tuple[str, str]] = []
-    for model_id, label in KNOWN_MODELS:
-        marker = "  ← current" if model_id == current_model else ""
-        values.append((model_id, f"{label}{marker}"))
+    console.print()
+    console.print(
+        f"  [bold magenta]▎[/] [bold cyan]Model Picker[/] "
+        f"[dim]· currently on[/] [magenta]{current_model}[/]"
+    )
+    console.print()
+    width = max(len(mid) for mid, _ in KNOWN_MODELS) + 1
+    for i, (model_id, label) in enumerate(KNOWN_MODELS, 1):
+        marker = " [bold yellow]← current[/]" if model_id == current_model else ""
+        console.print(
+            f"    [bold yellow]{i}.[/] "
+            f"[cyan]{model_id:<{width}}[/] "
+            f"[dim]· {label}[/]{marker}"
+        )
+    console.print()
 
-    result = await radiolist_dialog(
-        title=f" Model Picker — currently on {current_model} ",
-        text="↑↓ to navigate · Enter to confirm · Esc to cancel",
-        values=values,
-        default=current_model,
-        style=picker_style,
-    ).run_async()
-    return result
+    ps: PromptSession[str] = PromptSession()
+    n_models = len(KNOWN_MODELS)
+    try:
+        raw = await ps.prompt_async(
+            HTML(f"  <ansicyan>pick a number (1-{n_models}), or Enter alone to cancel:</ansicyan> ")
+        )
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        idx = int(raw) - 1
+        if 0 <= idx < len(KNOWN_MODELS):
+            return KNOWN_MODELS[idx][0]
+    except ValueError:
+        pass
+    console.print("  [red]invalid choice[/]")
+    return None
 
 
 def render_assistant_markdown(console: Console, text: str) -> None:

@@ -36,6 +36,9 @@ hermesv2 = "hermesv2.cli:main"
 [tool.setuptools.packages.find]
 include = ["hermesv2*"]
 
+[tool.setuptools.package-data]
+hermesv2 = ["marketplace.json"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
