@@ -11,6 +11,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from hermesv2 import tui
 from hermesv2.agent import (
     Agent,
     TextDelta,
@@ -24,7 +25,8 @@ from hermesv2.config import Config, load_config
 console = Console()
 
 
-def _render_event(event: object) -> None:
+def _render_event_plain(event: object) -> None:
+    """Compact, pipe-friendly rendering for `hermesv2 run`."""
     if isinstance(event, TextDelta):
         console.print(event.text, end="", soft_wrap=True, highlight=False)
     elif isinstance(event, ThinkingDelta):
@@ -45,6 +47,20 @@ def _render_event(event: object) -> None:
         console.print(
             f"\n[dim](stop={event.stop_reason}, billing={cost})[/]"
         )
+
+
+def _render_event_tui(event: object) -> None:
+    """Fancy rendering for `hermesv2 chat`."""
+    if isinstance(event, TextDelta):
+        tui.render_text_delta(console, event.text)
+    elif isinstance(event, ThinkingDelta):
+        tui.render_thinking_delta(console, event.text)
+    elif isinstance(event, ToolCall):
+        tui.render_tool_call(console, event.name, event.input)
+    elif isinstance(event, ToolResult):
+        tui.render_tool_result(console, event.name, event.output, event.is_error)
+    elif isinstance(event, TurnDone):
+        tui.render_turn_footer(console, event.stop_reason, event.cost_usd, event.usage)
 
 
 @click.group()
@@ -73,7 +89,7 @@ def run(config_path: str | None, prompt: tuple[str, ...]) -> None:
 async def _run_one(cfg: Config, message: str) -> None:
     async with Agent(cfg.agent, cwd=cfg.agent.workspace_dir) as agent:
         async for event in agent.run_stream(message):
-            _render_event(event)
+            _render_event_plain(event)
     console.print()
 
 
@@ -86,19 +102,14 @@ def chat(config_path: str | None) -> None:
 
 
 async def _chat(cfg: Config) -> None:
-    console.print(
-        f"[bold green]Hermes v2[/] — model [cyan]{cfg.agent.model}[/], "
-        f"effort [cyan]{cfg.agent.effort}[/], "
-        f"workspace [cyan]{cfg.agent.workspace_dir}[/]. "
-        "Type /reset to clear history."
-    )
+    tui.render_startup(console, cfg.agent)
     async with Agent(cfg.agent, cwd=cfg.agent.workspace_dir) as agent:
         session_id = "default"
         while True:
             try:
-                line = await asyncio.to_thread(console.input, "\n[bold blue]you›[/] ")
+                line = await asyncio.to_thread(console.input, tui.prompt_label())
             except (EOFError, KeyboardInterrupt):
-                console.print("\nbye.")
+                console.print("\n[dim]bye.[/]")
                 return
             line = line.strip()
             if not line:
@@ -110,9 +121,9 @@ async def _chat(cfg: Config) -> None:
                 console.print("[dim](history cleared)[/]")
                 continue
 
-            console.print("[bold magenta]hermes›[/] ", end="")
+            tui.assistant_label(console)
             async for event in agent.run_stream(line, session_id=session_id):
-                _render_event(event)
+                _render_event_tui(event)
             console.print()
 
 
