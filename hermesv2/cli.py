@@ -241,11 +241,14 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
         while True:
             try:
-                # Single-line prompt. Multi-line caused redraw glitches when
-                # backspacing through `/` completion text.
+                # The blank line is printed separately — keeping the prompt
+                # itself a pure single line avoids prompt-toolkit's cursor
+                # math going wrong on redraw (which made the prompt vanish
+                # when backspacing through `/x` completion text).
+                console.print()
                 line = await prompt_session.prompt_async(
                     HTML(
-                        "\n<b><ansicyan>▎</ansicyan></b> "
+                        "<b><ansicyan>▎</ansicyan></b> "
                         "<b><ansicyan>you</ansicyan></b> "
                         "<b><ansimagenta>❱</ansimagenta></b> "
                     )
