@@ -33,6 +33,11 @@ agent:
   # ~/.claude/skills/; or list names to load only specific ones.
   skills: all
 
+  # Persistent memory directory. Files in here (USER.md and any other .md)
+  # are read and appended to the system prompt on every turn, and the agent
+  # can update them via Write to remember things across sessions.
+  memory_dir: ~/.hermes-memory
+
   # Optional: MCP servers. The Agent SDK passes these to the spawned claude
   # subprocess. Each entry is a name → connection config.
   # See https://modelcontextprotocol.io for available servers.
@@ -41,9 +46,17 @@ agent:
   #     type: stdio
   #     command: npx
   #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/josh/projects"]
+  #
   #   github:
   #     type: stdio
   #     command: npx
   #     args: ["-y", "@modelcontextprotocol/server-github"]
   #     env:
   #       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PAT}
+  #
+  #   # Playwright: full browser automation (navigate, click, fill, screenshot)
+  #   # Install once: npm install -g @playwright/mcp@latest && npx playwright install
+  #   playwright:
+  #     type: stdio
+  #     command: npx
+  #     args: ["@playwright/mcp@latest", "--headless"]

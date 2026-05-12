@@ -466,6 +466,58 @@ def update() -> None:
     _run_update()
 
 
+@main.command(name="index")
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.option("--rebuild", is_flag=True, help="Wipe the index before re-walking.")
+def index_cmd(directory: str, rebuild: bool) -> None:
+    """Index a directory of text/markdown files for `hermesv2 search`."""
+    from hermesv2.search import index_directory
+    n = index_directory(directory, rebuild=rebuild)
+    console.print(f"[green]Indexed {n} files[/] from [cyan]{directory}[/]")
+
+
+@main.command(name="search")
+@click.argument("query", nargs=-1, required=True)
+@click.option("--limit", default=10, help="Max hits to return.")
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable output.")
+def search_cmd(query: tuple[str, ...], limit: int, as_json: bool) -> None:
+    """Full-text search over your indexed notes (FTS5)."""
+    from hermesv2.search import render_hits, render_hits_json, search
+    q = " ".join(query)
+    try:
+        hits = search(q, limit=limit)
+    except ValueError as e:
+        console.print(f"[red]{e}[/]")
+        sys.exit(1)
+    if as_json:
+        print(render_hits_json(hits))
+    else:
+        console.print(render_hits(hits))
+
+
+@main.command(name="voice")
+@click.argument("audio_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--model", default="small", help="Whisper model: tiny, base, small, medium, large-v3.")
+@click.option("--language", default=None, help="ISO language code; auto-detect if omitted.")
+@click.option("--run", "auto_run", is_flag=True, help="Pipe the transcript into `hermesv2 run`.")
+def voice_cmd(audio_file: str, model: str, language: str | None, auto_run: bool) -> None:
+    """Transcribe an audio file using local Whisper, optionally run it as a prompt."""
+    from hermesv2.voice import transcribe
+    try:
+        console.print(f"[dim]transcribing {audio_file} with whisper-{model}...[/]")
+        text = transcribe(audio_file, model_name=model, language=language)
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/]")
+        sys.exit(1)
+
+    console.print(f"\n[bold cyan]Transcript:[/] {text}\n")
+    if not auto_run or not text:
+        return
+
+    cfg = load_config()
+    asyncio.run(_run_one(cfg, text))
+
+
 @main.command(name="sessions")
 @click.option("--delete", "delete_id", default=None, help="Delete a session by ID.")
 @click.option("--limit", default=20, help="Max sessions to list.")

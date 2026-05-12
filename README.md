@@ -70,9 +70,41 @@ hermesv2 sessions --delete <id>         # delete one
 hermesv2 update                         # git pull
 hermesv2 doctor                         # diagnose (now actually pings claude)
 
+hermesv2 index ~/notes                  # FTS5-index a directory of text/md files
+hermesv2 search "deploy"                # search the indexed corpus
+
+hermesv2 voice recording.m4a            # transcribe an audio file (needs [voice] extra)
+hermesv2 voice recording.m4a --run      # transcribe then run as a prompt
+
 hermesv2 slack                          # needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
 hermesv2 discord                        # needs DISCORD_BOT_TOKEN
 ```
+
+## Persistent memory
+
+Hermesv2 reads every `*.md` file under `~/.hermes-memory/` at the start of each turn and appends them to the system prompt inside a `<memory>` block. `USER.md` is auto-created on first run and the agent updates it via the Write tool when it learns durable facts about you (preferences, ongoing projects, decisions). This is the Honcho-style user-modeling layer: persistent context, zero round-trips, all local.
+
+Edit any file in `~/.hermes-memory/` to seed context manually.
+
+## Notes search (FTS5)
+
+```sh
+hermesv2 index ~/notes               # walks recursively for *.md *.txt *.markdown *.org *.rst
+hermesv2 search "kubernetes ingress"
+hermesv2 search "kubernetes ingress" --json   # pipe-friendly
+```
+
+Backed by SQLite FTS5 (stdlib, no extra deps). Returns top BM25-ranked snippets. For semantic ranking, pipe the JSON output into `hermesv2 run "rank these by relevance to <topic>: ..."`.
+
+## Voice input
+
+```sh
+pip install -e ".[voice]"           # one-time: pulls faster-whisper
+hermesv2 voice meeting.m4a          # prints transcript
+hermesv2 voice meeting.m4a --run    # transcribe then send to agent
+```
+
+WSL note: live mic capture is fragile because of PulseAudio passthrough. Easier path: record on Windows with the built-in Voice Recorder app (saves `.m4a` to `~/Documents/Sound Recordings/`), then `hermesv2 voice /mnt/c/Users/.../recording.m4a`.
 
 In the chat REPL, type `/help` for the full slash-command list:
 

@@ -30,6 +30,7 @@ from claude_agent_sdk import (
 )
 
 from hermesv2.config import AgentSettings
+from hermesv2.memory import ensure_user_md, memory_dir, memory_system_block
 
 DEFAULT_TOOLS = [
     # Files
@@ -126,8 +127,19 @@ class Agent:
         else:
             thinking = {"type": "disabled"}
 
+        # Persistent memory: read USER.md (and any other .md) at agent start
+        # and inject as a <memory> block at the bottom of the system prompt.
+        mem_dir = memory_dir(self.settings.memory_dir)
+        ensure_user_md(mem_dir)
+        memory_block = memory_system_block(mem_dir)
+        full_system_prompt = self.settings.system_prompt + memory_block
+
+        # Make the memory dir visible to Read/Write so the agent can update it.
+        add_dirs = list(self.settings.add_dirs or [])
+        add_dirs.append(str(mem_dir))
+
         kwargs: dict[str, Any] = dict(
-            system_prompt=self.settings.system_prompt,
+            system_prompt=full_system_prompt,
             allowed_tools=DEFAULT_TOOLS,
             permission_mode=self.settings.permission_mode,
             cwd=str(self.cwd) if self.cwd else None,
@@ -135,6 +147,7 @@ class Agent:
             effort=self.settings.effort,
             thinking=thinking,
             include_partial_messages=True,
+            add_dirs=add_dirs,
         )
         if self.resume_session_id:
             kwargs["resume"] = self.resume_session_id
@@ -142,8 +155,6 @@ class Agent:
             kwargs["mcp_servers"] = self.settings.mcp_servers
         if self.settings.skills:
             kwargs["skills"] = self.settings.skills
-        if self.settings.add_dirs:
-            kwargs["add_dirs"] = self.settings.add_dirs
 
         return ClaudeAgentOptions(**kwargs)
 
