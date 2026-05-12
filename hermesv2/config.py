@@ -1,8 +1,7 @@
 """Config: YAML file merged with environment variables.
 
-The config file (`config.yaml` next to the cwd, by default) defines defaults;
-secrets and host-specific settings come from environment variables (or a `.env`
-file loaded by `python-dotenv`).
+The agent runs on top of Claude Code (via the Claude Agent SDK), which
+authenticates against your local `claude` CLI install — no API key needed.
 """
 
 from __future__ import annotations
@@ -17,65 +16,37 @@ from dotenv import load_dotenv
 
 DEFAULT_SYSTEM_PROMPT = """You are Hermes v2, a personal AI agent helping with work tasks.
 
-Capabilities you have via tools:
-  - Read, write, list, and search files on the local machine.
-  - Run shell commands carefully.
-  - Fetch URLs and search the web.
-  - Send email and read the inbox (when SMTP/IMAP are configured).
+You have built-in tools for: reading and writing files, running shell commands,
+searching/fetching the web, and editing text. Use them to actually do work
+rather than describing what to do.
 
 Operating principles:
-  - Be concise. Skip filler ("Sure! I'd be happy to help...").
-  - Use tools to actually do work, don't just describe what to do.
-  - For destructive actions (delete files, send email, push commits),
+  - Be concise. Skip filler like "Sure! I'd be happy to help...".
+  - For destructive actions (delete files, push commits, send messages),
     confirm intent in plain language before acting.
-  - Cite sources (URLs) when answering factual questions from the web."""
+  - Cite sources (URLs) when answering factual questions from the web.
+  - If a task is ambiguous, ask one clear question rather than guessing."""
 
 
 @dataclass
 class AgentSettings:
     model: str = "claude-opus-4-7"
-    effort: str = "high"
-    thinking: str = "adaptive"          # "adaptive" or "disabled"
-    thinking_display: str = "summarized"  # "summarized" or "omitted"
-    max_tokens: int = 16000
+    effort: str = "high"                    # low | medium | high | xhigh | max
+    thinking: str = "adaptive"              # adaptive | disabled
+    thinking_display: str = "summarized"    # summarized | omitted (Opus 4.7 default is omitted)
+    permission_mode: str = "default"        # default | acceptEdits | plan | bypassPermissions
+    workspace_dir: str = "~/hermes-workspace"
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
-
-
-@dataclass
-class ShellToolSettings:
-    enabled: bool = True
-    timeout_seconds: int = 60
-    blocked_patterns: list[str] = field(default_factory=list)
-
-
-@dataclass
-class FilesToolSettings:
-    enabled: bool = True
-    allowed_roots: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ToolSettings:
-    shell: ShellToolSettings = field(default_factory=ShellToolSettings)
-    files: FilesToolSettings = field(default_factory=FilesToolSettings)
-    web: bool = True
-    email: bool = False
 
 
 @dataclass
 class Config:
     agent: AgentSettings = field(default_factory=AgentSettings)
-    tools: ToolSettings = field(default_factory=ToolSettings)
-    # Secrets pulled from environment, not file
-    anthropic_api_key: str | None = None
-    smtp: dict[str, str] = field(default_factory=dict)
-    imap: dict[str, str] = field(default_factory=dict)
     slack: dict[str, str] = field(default_factory=dict)
     discord: dict[str, str] = field(default_factory=dict)
 
 
 def _merge(data: dict[str, Any] | None, defaults: Any) -> Any:
-    """Apply YAML overrides on top of a dataclass instance."""
     if not data:
         return defaults
     for key, val in data.items():
@@ -89,7 +60,6 @@ def _merge(data: dict[str, Any] | None, defaults: Any) -> Any:
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> Config:
-    """Load config from YAML + env. Missing file is OK — defaults are used."""
     load_dotenv()
 
     cfg = Config()
@@ -111,23 +81,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
             with candidate.open() as f:
                 data = yaml.safe_load(f) or {}
             cfg.agent = _merge(data.get("agent"), cfg.agent)
-            cfg.tools = _merge(data.get("tools"), cfg.tools)
             break
 
-    cfg.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
-    cfg.smtp = {
-        "host": os.environ.get("SMTP_HOST", ""),
-        "port": os.environ.get("SMTP_PORT", "587"),
-        "user": os.environ.get("SMTP_USER", ""),
-        "password": os.environ.get("SMTP_PASSWORD", ""),
-        "from": os.environ.get("SMTP_FROM", ""),
-    }
-    cfg.imap = {
-        "host": os.environ.get("IMAP_HOST", ""),
-        "port": os.environ.get("IMAP_PORT", "993"),
-        "user": os.environ.get("IMAP_USER", ""),
-        "password": os.environ.get("IMAP_PASSWORD", ""),
-    }
     cfg.slack = {
         "bot_token": os.environ.get("SLACK_BOT_TOKEN", ""),
         "app_token": os.environ.get("SLACK_APP_TOKEN", ""),

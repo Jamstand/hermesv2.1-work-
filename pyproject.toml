@@ -4,26 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermesv2"
-version = "0.1.0"
-description = "Personal Hermes-style agent for work: Slack/Discord/email/CLI on top of Claude."
+version = "0.2.0"
+description = "Personal Hermes-style agent on top of Claude Code (uses your Claude Max subscription via OAuth)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Personal" }]
 dependencies = [
-    "anthropic>=0.92",
+    "claude-agent-sdk>=0.1",
     "click>=8.1",
     "pyyaml>=6.0",
-    "httpx>=0.27",
     "python-dotenv>=1.0",
     "rich>=13.7",
 ]
 
 [project.optional-dependencies]
-slack = ["slack-bolt>=1.21", "slack-sdk>=3.33"]
+slack = ["slack-bolt>=1.21", "slack-sdk>=3.33", "aiohttp>=3.9"]
 discord = ["discord.py>=2.4"]
-all = ["slack-bolt>=1.21", "slack-sdk>=3.33", "discord.py>=2.4"]
-dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11"]
+all = ["slack-bolt>=1.21", "slack-sdk>=3.33", "aiohttp>=3.9", "discord.py>=2.4"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 hermesv2 = "hermesv2.cli:main"

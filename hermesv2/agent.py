@@ -1,43 +1,48 @@
-"""Core agent loop on top of the Anthropic SDK.
+"""Core agent loop on top of the Claude Agent SDK.
 
-Wraps `client.messages.stream()` in a tool-use loop. Emits typed events so the
-CLI / Slack / Discord layers can render progress without each one re-implementing
-the loop. Uses adaptive thinking and caches the system prompt + tool list across
-turns.
+Authenticates via your local `claude` CLI installation (OAuth) instead of an
+API key — so billing goes through your Claude Max subscription, not the
+Anthropic API.
+
+The Agent SDK runs the agent loop inside the local `claude` subprocess. We
+just forward user messages, stream back blocks/events, and yield them as
+typed events the CLI / Slack / Discord layers render uniformly.
 """
 
 from __future__ import annotations
 
-import os
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-import anthropic
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 
 from hermesv2.config import AgentSettings
 
-# --- Tool plumbing -----------------------------------------------------------
+DEFAULT_TOOLS = [
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Grep",
+    "Glob",
+    "WebFetch",
+    "WebSearch",
+]
 
 
-@dataclass
-class Tool:
-    """Custom (client-side) tool. Handler runs on the user's machine."""
-
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-    handler: Callable[[dict[str, Any]], str]
-
-    def to_api(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "input_schema": self.input_schema,
-        }
-
-
-# --- Agent events ------------------------------------------------------------
+# --- Events ------------------------------------------------------------------
 
 
 @dataclass
@@ -67,165 +72,145 @@ class ToolResult:
 class TurnDone:
     stop_reason: str
     final_text: str
-    usage: dict[str, int]
+    cost_usd: float | None
+    usage: dict[str, Any]
 
 
 Event = TextDelta | ThinkingDelta | ToolCall | ToolResult | TurnDone
-
-
-@dataclass
-class AgentConfig:
-    """Convenience alias so external callers can `from hermesv2 import AgentConfig`."""
-
-    settings: AgentSettings
-    tools: list[Tool] = field(default_factory=list)
-    server_tools: list[dict[str, Any]] = field(default_factory=list)
 
 
 # --- The agent ---------------------------------------------------------------
 
 
 class Agent:
-    def __init__(
-        self,
-        settings: AgentSettings,
-        tools: list[Tool] | None = None,
-        server_tools: list[dict[str, Any]] | None = None,
-        client: anthropic.Anthropic | None = None,
-    ) -> None:
+    """Long-lived agent backed by a single ClaudeSDKClient.
+
+    Multiple conversation threads are multiplexed via the `session_id` argument
+    to `run` / `run_stream`. The Slack and Discord adapters use this to keep
+    per-user history without spawning a new subprocess per user.
+    """
+
+    def __init__(self, settings: AgentSettings, cwd: str | Path | None = None):
         self.settings = settings
-        self.tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
-        self.server_tools = server_tools or []
-        self.client = client or _build_default_client()
-        self.conversation: list[dict[str, Any]] = []
+        self.cwd = Path(cwd).expanduser() if cwd else None
+        self._client: ClaudeSDKClient | None = None
+        self._reset_counter = 0
 
-    def reset(self) -> None:
-        self.conversation = []
-
-    def _build_params(self) -> dict[str, Any]:
-        system_block = [
-            {
-                "type": "text",
-                "text": self.settings.system_prompt,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
-        params: dict[str, Any] = {
-            "model": self.settings.model,
-            "max_tokens": self.settings.max_tokens,
-            "system": system_block,
-            "messages": self.conversation,
-            "tools": [t.to_api() for t in self.tools.values()] + self.server_tools,
-        }
+    def _build_options(self) -> ClaudeAgentOptions:
         if self.settings.thinking == "adaptive":
-            params["thinking"] = {
+            thinking: dict[str, Any] = {
                 "type": "adaptive",
                 "display": self.settings.thinking_display,
             }
-            params["output_config"] = {"effort": self.settings.effort}
-        elif self.settings.thinking == "disabled":
-            params["thinking"] = {"type": "disabled"}
-        return params
+        else:
+            thinking = {"type": "disabled"}
+        return ClaudeAgentOptions(
+            system_prompt=self.settings.system_prompt,
+            allowed_tools=DEFAULT_TOOLS,
+            permission_mode=self.settings.permission_mode,
+            cwd=str(self.cwd) if self.cwd else None,
+            model=self.settings.model,
+            effort=self.settings.effort,
+            thinking=thinking,  # type: ignore[arg-type]
+            include_partial_messages=True,
+        )
 
-    def run(self, user_message: str, max_iterations: int = 10) -> str:
-        """One-shot: send message, run tool loop, return final text."""
-        text_parts: list[str] = []
-        for event in self.run_stream(user_message, max_iterations=max_iterations):
-            if isinstance(event, TurnDone):
-                text_parts.append(event.final_text)
-        return "".join(text_parts)
+    async def connect(self) -> None:
+        if self.cwd:
+            self.cwd.mkdir(parents=True, exist_ok=True)
+        self._client = ClaudeSDKClient(options=self._build_options())
+        await self._client.connect()
 
-    def run_stream(
-        self, user_message: str, max_iterations: int = 10
-    ) -> Iterator[Event]:
-        """Stream events as the agent works through tools to a final answer."""
-        self.conversation.append({"role": "user", "content": user_message})
+    async def disconnect(self) -> None:
+        if self._client is not None:
+            await self._client.disconnect()
+            self._client = None
 
-        for _ in range(max_iterations):
-            with self.client.messages.stream(**self._build_params()) as stream:
-                for sse in stream:
-                    if sse.type != "content_block_delta":
-                        continue
-                    delta = sse.delta
-                    if delta.type == "text_delta":
-                        yield TextDelta(delta.text)
-                    elif delta.type == "thinking_delta":
-                        yield ThinkingDelta(delta.thinking)
-                response = stream.get_final_message()
+    async def __aenter__(self) -> Agent:
+        await self.connect()
+        return self
 
-            self.conversation.append(
-                {"role": "assistant", "content": response.content}
+    async def __aexit__(self, *_: Any) -> None:
+        await self.disconnect()
+
+    def reset_session(self, base: str = "default") -> str:
+        """Bump the session counter so the next call starts a fresh history."""
+        self._reset_counter += 1
+        return f"{base}-{self._reset_counter}"
+
+    async def run(self, user_message: str, session_id: str = "default") -> str:
+        parts: list[str] = []
+        async for ev in self.run_stream(user_message, session_id=session_id):
+            if isinstance(ev, TurnDone):
+                return ev.final_text
+            if isinstance(ev, TextDelta):
+                parts.append(ev.text)
+        return "".join(parts)
+
+    async def run_stream(
+        self, user_message: str, session_id: str = "default"
+    ) -> AsyncIterator[Event]:
+        if self._client is None:
+            raise RuntimeError(
+                "Agent not connected. Use `async with Agent(...) as agent:` "
+                "or call `await agent.connect()` first."
             )
 
-            tool_uses = [b for b in response.content if b.type == "tool_use"]
+        await self._client.query(user_message, session_id=session_id)
 
-            # Server-side tool hit its internal cap; re-send to continue.
-            if response.stop_reason == "pause_turn":
-                continue
+        final_text_parts: list[str] = []
+        tool_use_names: dict[str, str] = {}  # tool_use_id -> name
 
-            if not tool_uses or response.stop_reason == "end_turn":
-                final_text = "".join(
-                    b.text for b in response.content if b.type == "text"
-                )
+        async for msg in self._client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                async for ev in self._handle_assistant(msg, final_text_parts, tool_use_names):
+                    yield ev
+            elif isinstance(msg, ResultMessage):
                 yield TurnDone(
-                    stop_reason=response.stop_reason or "end_turn",
-                    final_text=final_text,
-                    usage=_usage_dict(response.usage),
+                    stop_reason=msg.stop_reason or "end_turn",
+                    final_text="".join(final_text_parts),
+                    cost_usd=msg.total_cost_usd,
+                    usage=msg.usage or {},
                 )
                 return
+            elif isinstance(msg, SystemMessage):
+                continue
+            # StreamEvent / RateLimitEvent: ignore for now; could surface later.
 
-            tool_results: list[dict[str, Any]] = []
-            for tu in tool_uses:
-                yield ToolCall(name=tu.name, input=tu.input or {})
-                output, is_error = self._dispatch_tool(tu.name, tu.input or {})
-                yield ToolResult(name=tu.name, output=output, is_error=is_error)
-                result_block: dict[str, Any] = {
-                    "type": "tool_result",
-                    "tool_use_id": tu.id,
-                    "content": output,
-                }
-                if is_error:
-                    result_block["is_error"] = True
-                tool_results.append(result_block)
-
-            self.conversation.append({"role": "user", "content": tool_results})
-
-        yield TurnDone(stop_reason="max_iterations", final_text="", usage={})
-
-    def _dispatch_tool(
-        self, name: str, tool_input: dict[str, Any]
-    ) -> tuple[str, bool]:
-        tool = self.tools.get(name)
-        if tool is None:
-            return f"Unknown tool: {name}", True
-        try:
-            return tool.handler(tool_input), False
-        except Exception as e:  # noqa: BLE001 — surface any handler crash to the model
-            return f"{type(e).__name__}: {e}", True
+    async def _handle_assistant(
+        self,
+        msg: AssistantMessage,
+        final_text_parts: list[str],
+        tool_use_names: dict[str, str],
+    ) -> AsyncIterator[Event]:
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                final_text_parts.append(block.text)
+                yield TextDelta(block.text)
+            elif isinstance(block, ThinkingBlock):
+                yield ThinkingDelta(block.thinking)
+            elif isinstance(block, ToolUseBlock):
+                tool_use_names[block.id] = block.name
+                yield ToolCall(name=block.name, input=block.input or {})
+            elif isinstance(block, ToolResultBlock):
+                yield ToolResult(
+                    name=tool_use_names.get(block.tool_use_id, block.tool_use_id),
+                    output=_stringify_result(block.content),
+                    is_error=bool(block.is_error),
+                )
 
 
-def _build_default_client() -> anthropic.Anthropic:
-    """Build the default Anthropic client, honoring SSL_CERT_FILE if set.
-
-    Behind a TLS-intercepting proxy, the org's CA bundle lives in the system
-    cert store (e.g. /etc/ssl/certs/ca-certificates.crt) — certifi's default
-    bundle doesn't know about it. httpx doesn't auto-read SSL_CERT_FILE, so
-    we read it ourselves and pass it as `verify=`.
-    """
-    cert_file = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
-    if cert_file and os.path.isfile(cert_file):
-        return anthropic.Anthropic(
-            http_client=anthropic.DefaultHttpxClient(verify=cert_file)
-        )
-    return anthropic.Anthropic()
-
-
-def _usage_dict(usage: Any) -> dict[str, int]:
-    return {
-        "input_tokens": getattr(usage, "input_tokens", 0),
-        "output_tokens": getattr(usage, "output_tokens", 0),
-        "cache_creation_input_tokens": getattr(
-            usage, "cache_creation_input_tokens", 0
-        ),
-        "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", 0),
-    }
+def _stringify_result(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and "text" in item:
+                parts.append(str(item["text"]))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(content)

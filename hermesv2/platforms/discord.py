@@ -3,25 +3,20 @@
 Requires `pip install 'hermesv2[discord]'`. Needs a bot token from the Discord
 Developer Portal with the MESSAGE_CONTENT privileged intent enabled.
 
-The bot responds to direct messages and to @mentions in channels. Each Discord
-user gets their own conversation thread.
-
-Because discord.py is async but the Anthropic SDK calls are sync, agent runs
-are dispatched to a thread pool so the gateway loop stays responsive.
+The bot responds to direct messages and to @mentions in channels. Per-user
+history is kept by multiplexing the agent's session_id, so different users
+don't share conversation state.
 """
 
 from __future__ import annotations
 
-import asyncio
 import sys
-from threading import Lock
 
 from hermesv2.agent import Agent
 from hermesv2.config import Config
-from hermesv2.tools import build_tools
 
 
-def run_discord_bot(config: Config) -> None:
+async def run_discord_bot(config: Config) -> None:
     try:
         import discord
     except ImportError:
@@ -36,24 +31,12 @@ def run_discord_bot(config: Config) -> None:
         print("DISCORD_BOT_TOKEN must be set in the environment.", file=sys.stderr)
         sys.exit(1)
 
-    custom_tools, server_tools = build_tools(config)
-    agents: dict[int, Agent] = {}
-    lock = Lock()
-
-    def _agent_for(user_id: int) -> Agent:
-        with lock:
-            if user_id not in agents:
-                agents[user_id] = Agent(
-                    settings=config.agent,
-                    tools=custom_tools,
-                    server_tools=server_tools,
-                )
-            return agents[user_id]
+    agent = Agent(config.agent, cwd=config.agent.workspace_dir)
+    await agent.connect()
 
     intents = discord.Intents.default()
     intents.message_content = True
     intents.dm_messages = True
-
     client = discord.Client(intents=intents)
 
     @client.event
@@ -77,17 +60,18 @@ def run_discord_bot(config: Config) -> None:
             return
 
         async with message.channel.typing():
-            agent = _agent_for(message.author.id)
             try:
-                reply = await asyncio.to_thread(agent.run, text)
+                reply = await agent.run(text, session_id=f"discord-{message.author.id}")
             except Exception as e:  # noqa: BLE001
                 reply = f":warning: {type(e).__name__}: {e}"
 
-        # Discord caps messages at 2000 chars; chunk if longer.
         for chunk in _chunk(reply or "(no response)", 1900):
             await message.channel.send(chunk)
 
-    client.run(token)
+    try:
+        await client.start(token)
+    finally:
+        await agent.disconnect()
 
 
 def _chunk(text: str, size: int) -> list[str]:
