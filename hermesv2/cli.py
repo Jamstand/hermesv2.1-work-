@@ -262,21 +262,34 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
             if line.startswith("/"):
                 action = await _handle_slash(
-                    line, agent, stats, current_model, cfg, user_history,
+                    line, agent, stats, current_model, cfg, user_history, session_id,
                 )
                 if action == "exit":
                     return
-                if isinstance(action, tuple) and action[0] == "model":
-                    current_model = action[1]
+                if isinstance(action, tuple):
+                    if action[0] == "model":
+                        current_model = action[1]
+                    elif action[0] == "session":
+                        session_id = action[1]
+                        user_history.clear()
+                    elif action[0] == "retry":
+                        # Replay last prompt as if user just sent it again.
+                        line = action[1]
+                        # Fall through into the streaming block below.
+                    else:
+                        pass
                 if action == "reset":
                     session_id = agent.reset_session()
                 if action == "redraw":
                     tui.render_startup(console, cfg.agent, session_name=session_id)
-                tui.render_status_bar(
-                    console, current_model, await _ctx_pct(agent),
-                    stats.last_turn_seconds, stats.session_seconds, session_id,
-                )
-                continue
+                # If retry, fall through to the streaming block; otherwise loop.
+                if not (isinstance(action, tuple) and action[0] == "retry"):
+                    tui.render_status_bar(
+                        console, current_model, await _ctx_pct(agent),
+                        stats.last_turn_seconds, stats.session_seconds, session_id,
+                    )
+                    continue
+                console.print(f"  [dim](retrying: {line[:60]}{'...' if len(line) > 60 else ''})[/]")
 
             user_history.append(line)
             stats.start_turn()
@@ -301,6 +314,14 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
             )
 
 
+PERMISSION_ALIASES = {
+    "/plan":  "plan",
+    "/safe":  "default",
+    "/auto":  "acceptEdits",
+    "/yolo":  "bypassPermissions",
+}
+
+
 async def _handle_slash(
     line: str,
     agent: Agent,
@@ -308,6 +329,7 @@ async def _handle_slash(
     current_model: str,
     cfg: Config,
     user_history: list[str],
+    session_id: str,
 ) -> str | tuple[str, str] | None:
     parts = line.split(maxsplit=1)
     cmd = parts[0].lower()
@@ -334,7 +356,7 @@ async def _handle_slash(
             return None
         try:
             from claude_agent_sdk import rename_session
-            rename_session(agent._client._session_id if agent._client else "default", arg)
+            rename_session(session_id, arg)
             console.print(f"  [green]session renamed to[/] [cyan]{arg}[/]")
         except Exception as e:  # noqa: BLE001
             console.print(f"[red]rename failed: {e}[/]")
@@ -348,6 +370,74 @@ async def _handle_slash(
             short = prompt if len(prompt) < 80 else prompt[:80] + "..."
             console.print(f"  [dim]{i:>2}.[/] {short}")
         console.print()
+        return None
+
+    # --- Permission modes --------------------------------------------------
+    if cmd in PERMISSION_ALIASES:
+        return await _set_perm(agent, PERMISSION_ALIASES[cmd])
+    if cmd == "/permission":
+        if not arg:
+            console.print("  [yellow]usage:[/] /permission <default|acceptEdits|plan|bypassPermissions>")
+            return None
+        return await _set_perm(agent, arg)
+
+    # --- Retry -------------------------------------------------------------
+    if cmd == "/retry":
+        if not user_history:
+            console.print("[dim]nothing to retry — no prompts yet this session.[/]")
+            return None
+        return ("retry", user_history[-1])
+
+    # --- Workspace ---------------------------------------------------------
+    if cmd == "/cwd":
+        console.print(f"  [dim]workspace[/]   [cyan]{cfg.agent.workspace_dir}[/]")
+        if cfg.agent.add_dirs:
+            for extra in cfg.agent.add_dirs:
+                console.print(f"  [dim]extra     [/]   [cyan]{extra}[/]")
+        return None
+    if cmd == "/cd":
+        if not arg:
+            console.print("  [yellow]usage:[/] /cd <path>")
+            return None
+        new_path = str(Path(arg).expanduser())
+        if new_path not in cfg.agent.add_dirs:
+            cfg.agent.add_dirs.append(new_path)
+        console.print(
+            f"  [green]added[/] [cyan]{new_path}[/] [dim]to allowed dirs.[/] "
+            "[yellow]Use /new to start a fresh session and let Claude see it.[/]"
+        )
+        return None
+
+    # --- Sysprompt ---------------------------------------------------------
+    if cmd == "/sysprompt":
+        console.print(f"\n[bold cyan]System prompt:[/]\n[dim]{cfg.agent.system_prompt}[/]\n")
+        return None
+
+    # --- Branch / fork -----------------------------------------------------
+    if cmd in ("/branch", "/fork"):
+        if not arg:
+            console.print(f"  [yellow]usage:[/] {cmd} <new-name>")
+            return None
+        try:
+            from claude_agent_sdk import fork_session
+            result = fork_session(session_id, title=arg)
+            new_id = getattr(result, "session_id", arg)
+            console.print(
+                f"  [green]forked[/] from [dim]{session_id[:16]}...[/] "
+                f"to [cyan]{new_id}[/]"
+            )
+            return ("session", new_id)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]fork failed: {e}[/]")
+            return None
+
+    # --- Compress (best-effort) -------------------------------------------
+    if cmd == "/compress":
+        console.print(
+            "  [dim]Manual compression is not exposed by the Agent SDK directly. "
+            "Claude Code auto-compacts as you approach the context limit. "
+            "For now, use /new to start a fresh session instead.[/]"
+        )
         return None
     if cmd == "/tools":
         tui.render_tools(console)
@@ -401,6 +491,37 @@ async def _list_sessions_async() -> None:
         console.print("[dim]No saved sessions yet.[/]")
         return
     tui.render_sessions(console, sessions)
+
+
+VALID_PERMISSION_MODES = {"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"}
+
+
+async def _set_perm(agent: Agent, mode: str) -> str | None:
+    """Switch the agent's permission mode mid-session. Returns 'permission' on success."""
+    if mode not in VALID_PERMISSION_MODES:
+        console.print(
+            f"  [red]unknown mode '{mode}'.[/] "
+            f"[dim]Valid: {', '.join(sorted(VALID_PERMISSION_MODES))}.[/]"
+        )
+        return None
+    if agent._client is None:
+        console.print("[red]Agent not connected.[/]")
+        return None
+    try:
+        await agent._client.set_permission_mode(mode)  # type: ignore[arg-type]
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Failed to switch permission mode: {e}[/]")
+        return None
+    desc = {
+        "default":           "prompts before destructive actions",
+        "plan":              "plan mode — Claude proposes a plan before executing",
+        "acceptEdits":       "auto-approve file edits",
+        "bypassPermissions": "full trust — no prompts (use carefully)",
+        "dontAsk":           "don't ask permission",
+        "auto":              "auto-decide",
+    }.get(mode, mode)
+    console.print(f"  [green]permission mode →[/] [bold cyan]{mode}[/] [dim]({desc})[/]")
+    return "permission"
 
 
 async def _ctx_pct(agent: Agent) -> float | None:

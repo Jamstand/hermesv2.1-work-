@@ -412,21 +412,38 @@ def _fmt_seconds(seconds: float) -> str:
 # Slash commands as structured (command, description) pairs so they can be
 # rendered both as text help AND as completer suggestions.
 SLASH_COMMANDS: list[tuple[str, str]] = [
-    ("/help",     "Show available slash commands"),
-    ("/new",      "Start a new session (fresh history)"),
-    ("/reset",    "Start a new session (alias for /new)"),
-    ("/clear",    "Clear the screen"),
-    ("/redraw",   "Re-render banner + welcome panel"),
-    ("/context",  "Show current context-window usage"),
-    ("/stats",    "Show this session's totals (turns, tokens, time)"),
-    ("/sessions", "List saved Claude Code sessions"),
-    ("/title",    "Set a title for the current session (usage: /title <name>)"),
-    ("/history",  "Show recent user prompts in this session"),
-    ("/tools",    "List built-in tools (Read, Write, Bash, etc.)"),
-    ("/model",    "Switch model mid-session (usage: /model <name>)"),
-    ("/update",   "git pull the latest hermesv2 from origin"),
-    ("/exit",     "Quit hermesv2"),
-    ("/quit",     "Quit hermesv2 (alias for /exit)"),
+    # General
+    ("/help",       "Show available slash commands"),
+    ("/exit",       "Quit hermesv2"),
+    ("/quit",       "Quit hermesv2 (alias for /exit)"),
+    # Session control
+    ("/new",        "Start a new session (fresh history)"),
+    ("/reset",      "Start a new session (alias for /new)"),
+    ("/clear",      "Clear the screen"),
+    ("/redraw",     "Re-render banner + welcome panel"),
+    ("/title",      "Set a title for the current session (usage: /title <name>)"),
+    ("/history",    "Show recent user prompts in this session"),
+    ("/retry",      "Re-send the last user prompt to the agent"),
+    ("/branch",     "Fork the current session under a new name (usage: /branch <name>)"),
+    ("/fork",       "Fork the current session (alias for /branch)"),
+    ("/compress",   "Manually compact the conversation summary"),
+    # Permission modes
+    ("/plan",       "Switch to plan mode (Claude proposes a plan before executing)"),
+    ("/safe",       "Switch to default permission mode (prompts before destructive)"),
+    ("/auto",       "Switch to acceptEdits mode (auto-approve file edits)"),
+    ("/yolo",       "Switch to bypassPermissions mode — full trust, no prompts"),
+    ("/permission", "Set permission mode explicitly (usage: /permission <mode>)"),
+    # Workspace
+    ("/cwd",        "Show the current workspace + any extra mounted dirs"),
+    ("/cd",         "Add an extra directory the agent can touch (usage: /cd <path>)"),
+    ("/sysprompt",  "Print the current system prompt"),
+    # Status / info
+    ("/context",    "Show current context-window usage"),
+    ("/stats",      "Show this session's totals (turns, tokens, time)"),
+    ("/sessions",   "List saved Claude Code sessions"),
+    ("/tools",      "List built-in tools (Read, Write, Bash, etc.)"),
+    ("/model",      "Switch model mid-session (usage: /model <name>)"),
+    ("/update",     "git pull the latest hermesv2 from origin"),
 ]
 
 
