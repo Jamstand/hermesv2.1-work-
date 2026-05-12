@@ -418,6 +418,34 @@ async def _handle_slash(
             return None
         return ("retry", user_history[-1])
 
+    # --- Image / screenshot ------------------------------------------------
+    if cmd == "/img":
+        if not arg:
+            console.print("  [yellow]usage:[/] /img <path> [question]")
+            return None
+        path_part, _, question = arg.partition(" ")
+        path = Path(path_part).expanduser()
+        if not path.is_file():
+            console.print(f"[red]not a file: {path}[/]")
+            return None
+        question = question.strip() or "Describe what's in this image in detail."
+        full_prompt = f"Read the image at `{path}` and answer: {question}"
+        console.print(f"  [dim]attaching[/] [cyan]{path}[/]")
+        return ("retry", full_prompt)
+
+    if cmd == "/screenshot":
+        latest = tui.find_recent_screenshot()
+        if latest is None:
+            console.print(
+                "[red]No recent screenshot found.[/] [dim]Looked under "
+                "/mnt/c/Users/*/Pictures/Screenshots and ~/Pictures.[/]"
+            )
+            return None
+        question = arg.strip() or "Describe what's in this screenshot in detail."
+        full_prompt = f"Read the image at `{latest}` and answer: {question}"
+        console.print(f"  [dim]using[/] [cyan]{latest.name}[/] [dim]from {latest.parent}[/]")
+        return ("retry", full_prompt)
+
     # --- Workspace ---------------------------------------------------------
     if cmd == "/cwd":
         console.print(f"  [dim]workspace[/]   [cyan]{cfg.agent.workspace_dir}[/]")

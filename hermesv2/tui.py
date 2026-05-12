@@ -303,6 +303,45 @@ KNOWN_MODELS: list[tuple[str, str]] = [
 ]
 
 
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+
+
+def find_recent_screenshot(extra_dirs: list[str] | None = None) -> Path | None:
+    """Find the most-recently-modified image in well-known screenshot folders.
+
+    Looks under WSL's view of every Windows user's Pictures/Screenshots dir,
+    plus ~/Pictures/Screenshots and ~/Pictures, plus any extra dirs caller
+    supplies. Returns None if nothing matches.
+    """
+    candidates: list[Path] = []
+    win_users = Path("/mnt/c/Users")
+    if win_users.is_dir():
+        for user_dir in win_users.iterdir():
+            if not user_dir.is_dir():
+                continue
+            candidates.append(user_dir / "Pictures" / "Screenshots")
+            candidates.append(user_dir / "OneDrive" / "Pictures" / "Screenshots")
+    candidates.append(Path.home() / "Pictures" / "Screenshots")
+    candidates.append(Path.home() / "Pictures")
+    if extra_dirs:
+        candidates.extend(Path(p).expanduser() for p in extra_dirs)
+
+    best: tuple[float, Path] | None = None
+    for directory in candidates:
+        if not directory.is_dir():
+            continue
+        for path in directory.iterdir():
+            if path.suffix.lower() not in IMAGE_EXTS or not path.is_file():
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if best is None or mtime > best[0]:
+                best = (mtime, path)
+    return best[1] if best else None
+
+
 async def pick_model_dialog(current_model: str) -> str | None:
     """Interactive model picker. Returns chosen model_id, or None if cancelled."""
     from prompt_toolkit.shortcuts import radiolist_dialog
@@ -481,6 +520,8 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/title",      "Set a title for the current session (usage: /title <name>)"),
     ("/history",    "Show recent user prompts in this session"),
     ("/retry",      "Re-send the last user prompt to the agent"),
+    ("/img",        "Send an image to the agent (usage: /img <path> [question])"),
+    ("/screenshot", "Send your most recent screenshot to the agent (optional question)"),
     ("/branch",     "Fork the current session under a new name (usage: /branch <name>)"),
     ("/fork",       "Fork the current session (alias for /branch)"),
     ("/compress",   "Manually compact the conversation summary"),
