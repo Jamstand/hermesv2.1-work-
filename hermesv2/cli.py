@@ -486,9 +486,16 @@ async def _handle_slash(
             console.print(f"  [dim]Context: {usage}[/]")
         return None
     if cmd == "/model":
+        # No-arg form opens the picker dialog. Pass a model name to skip it.
         if not arg:
-            console.print(f"  current model: [cyan]{current_model}[/]")
-            return None
+            chosen = await tui.pick_model_dialog(current_model)
+            if not chosen:
+                console.print("  [dim](no change)[/]")
+                return None
+            if chosen == current_model:
+                console.print(f"  [dim]already on[/] [cyan]{chosen}[/]")
+                return None
+            arg = chosen
         if agent._client is None:
             console.print("[red]Agent not connected.[/]")
             return None

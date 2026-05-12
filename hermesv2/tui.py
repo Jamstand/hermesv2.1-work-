@@ -294,6 +294,49 @@ def render_text_delta(console: Console, text: str) -> None:
     console.print(text, end="", soft_wrap=True, highlight=False)
 
 
+# Known Claude models for the /model picker. Tuples of (model_id, label).
+KNOWN_MODELS: list[tuple[str, str]] = [
+    ("claude-opus-4-7",   "Opus 4.7  ·  most capable (default)"),
+    ("claude-opus-4-6",   "Opus 4.6  ·  previous Opus generation"),
+    ("claude-sonnet-4-6", "Sonnet 4.6  ·  faster, cheaper on Max quota"),
+    ("claude-haiku-4-5",  "Haiku 4.5  ·  fastest, simplest tasks"),
+]
+
+
+async def pick_model_dialog(current_model: str) -> str | None:
+    """Interactive model picker. Returns chosen model_id, or None if cancelled."""
+    from prompt_toolkit.shortcuts import radiolist_dialog
+    from prompt_toolkit.styles import Style as PtkStyle
+
+    picker_style = PtkStyle.from_dict({
+        "dialog":             "bg:#1c1c2e",
+        "dialog frame.label": "bg:#1c1c2e #ff5fd7 bold",
+        "dialog.body":        "bg:#1c1c2e #87d7ff",
+        "dialog shadow":      "bg:#0c0c1e",
+        "radio":              "#87d7ff",
+        "radio-selected":     "#ff5fd7 bold",
+        "radio-checked":      "#ffffff bold",
+        "button":             "bg:#1c1c2e #87d7ff",
+        "button.focused":     "bg:#5f5fff #ffffff bold",
+        "button.arrow":       "#ff5fd7",
+    })
+
+    # Build the values list with the current model labelled.
+    values: list[tuple[str, str]] = []
+    for model_id, label in KNOWN_MODELS:
+        marker = "  ← current" if model_id == current_model else ""
+        values.append((model_id, f"{label}{marker}"))
+
+    result = await radiolist_dialog(
+        title=f" Model Picker — currently on {current_model} ",
+        text="↑↓ to navigate · Enter to confirm · Esc to cancel",
+        values=values,
+        default=current_model,
+        style=picker_style,
+    ).run_async()
+    return result
+
+
 def render_assistant_markdown(console: Console, text: str) -> None:
     """Render a buffered assistant text segment as Markdown.
 
