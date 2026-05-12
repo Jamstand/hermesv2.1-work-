@@ -11,6 +11,7 @@ typed events the CLI / Slack / Discord layers render uniformly.
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,6 +119,10 @@ class Agent:
     async def connect(self) -> None:
         if self.cwd:
             self.cwd.mkdir(parents=True, exist_ok=True)
+        # We auth via the local `claude` CLI's OAuth (Max). If a stray
+        # ANTHROPIC_API_KEY is set in the env (e.g. leftover from .env), the
+        # subprocess would try to use it and fail with "Invalid API key".
+        os.environ.pop("ANTHROPIC_API_KEY", None)
         self._client = ClaudeSDKClient(options=self._build_options())
         await self._client.connect()
 
