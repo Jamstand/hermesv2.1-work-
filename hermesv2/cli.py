@@ -446,6 +446,26 @@ async def _handle_slash(
         console.print(f"  [dim]using[/] [cyan]{latest.name}[/] [dim]from {latest.parent}[/]")
         return ("retry", full_prompt)
 
+    # --- Maps (open in browser + ask agent for details) -------------------
+    if cmd == "/maps":
+        if not arg:
+            console.print("  [yellow]usage:[/] /maps <place or query>")
+            return None
+        import urllib.parse
+        encoded = urllib.parse.quote_plus(arg)
+        url = f"https://www.google.com/maps/search/?api=1&query={encoded}"
+        opened = _open_in_browser(url)
+        if opened:
+            console.print(f"  [green]opened in browser:[/] [cyan]{url}[/]")
+        else:
+            console.print(f"  [dim]copy and open in browser:[/] [cyan]{url}[/]")
+        full_prompt = (
+            f"Look up '{arg}' on Google Maps and tell me the address, hours, rating, "
+            f"and any notable details. Use web_search and web_fetch as needed. Cite sources.\n\n"
+            f"Maps URL for reference: {url}"
+        )
+        return ("retry", full_prompt)
+
     # --- Plugin (shells to `claude plugin ...`) ----------------------------
     if cmd == "/plugin":
         if not arg:
@@ -680,6 +700,33 @@ def update() -> None:
 # ---------------------------------------------------------------------------
 # `hermesv2 plugin ...` — thin wrapper around `claude plugin` subcommand
 # ---------------------------------------------------------------------------
+
+
+def _open_in_browser(url: str) -> bool:
+    """Best-effort open a URL in the user's default browser.
+
+    Tries WSL→Windows (cmd.exe), then Linux (xdg-open), then macOS (open).
+    Returns True if something was launched, False otherwise.
+    """
+    candidates: list[list[str]] = []
+    if shutil.which("cmd.exe"):
+        candidates.append(["cmd.exe", "/c", "start", "", url])
+    if shutil.which("xdg-open"):
+        candidates.append(["xdg-open", url])
+    if shutil.which("open"):
+        candidates.append(["open", url])
+    for argv in candidates:
+        try:
+            subprocess.Popen(
+                argv,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
 
 
 def _shell_claude_plugin(args: list[str]) -> None:
