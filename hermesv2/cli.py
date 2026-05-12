@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import shutil
 import subprocess
@@ -54,8 +55,9 @@ MARKDOWN_THEME = Theme({
 console = Console(theme=MARKDOWN_THEME)
 
 # Last /maps result, used by /zoomin and /zoomout for incremental re-render.
-# Shape: {"query": str, "place": str, "lat": float, "lon": float, "zoom": int}
-_LAST_MAP: dict[str, Any] | None = None
+# Mutable dict (cleared/updated in place) so we don't need `global` declarations.
+# Keys when populated: query, place, lat, lon, zoom.
+_LAST_MAP: dict[str, Any] = {}
 
 
 def _render_map_panel(result: dict[str, Any]) -> None:
@@ -537,14 +539,14 @@ async def _handle_slash(
         _render_map_panel(result)
 
         if result.get("lat") is not None:
-            global _LAST_MAP
-            _LAST_MAP = {
+            _LAST_MAP.clear()
+            _LAST_MAP.update({
                 "query": query,
                 "place": result["place"],
                 "lat": result["lat"],
                 "lon": result["lon"],
                 "zoom": result["zoom"],
-            }
+            })
 
         opened = _open_in_browser(url)
         if opened:
@@ -564,8 +566,7 @@ async def _handle_slash(
 
     # --- Zoom in / out (re-render the last /maps result) ------------------
     if cmd in ("/zoomin", "/zoomout"):
-        global _LAST_MAP  # noqa: PLW0602 — declared above; ruff still wants this
-        if _LAST_MAP is None:
+        if not _LAST_MAP:
             console.print(
                 "  [#f38ba8]no map yet[/] [dim]— run /maps <query> first[/]"
             )
@@ -818,6 +819,105 @@ def _find_repo_root() -> Path | None:
 def update() -> None:
     """`git pull` the latest hermesv2 from origin."""
     _run_update()
+
+
+# ---------------------------------------------------------------------------
+# Daemon: long-running hermesv2 you can attach/detach via tmux
+# ---------------------------------------------------------------------------
+
+TMUX_SESSION_NAME = "hermesv2"
+
+
+def _tmux_available() -> bool:
+    return shutil.which("tmux") is not None
+
+
+def _tmux_session_exists(name: str) -> bool:
+    r = subprocess.run(
+        ["tmux", "has-session", "-t", name],
+        capture_output=True,
+    )
+    return r.returncode == 0
+
+
+def _hermesv2_command() -> list[str]:
+    """Absolute command to launch the hermesv2 CLI inside the daemon session."""
+    exe = shutil.which("hermesv2")
+    if exe:
+        return [exe]
+    return [sys.executable, "-m", "hermesv2"]
+
+
+@main.command(name="daemon")
+def daemon_cmd() -> None:
+    """Start hermesv2 chat as a persistent tmux session you can attach/detach.
+
+    If a session already exists, attaches to it instead of starting a new one.
+    Detach with Ctrl-B then D — the agent keeps running. Re-attach later with
+    `hermesv2 connect`.
+    """
+    if not _tmux_available():
+        console.print(
+            "  [#f38ba8]tmux not installed.[/] "
+            "[dim]Run:[/] [#89dceb]sudo apt install -y tmux[/]"
+        )
+        sys.exit(1)
+    if _tmux_session_exists(TMUX_SESSION_NAME):
+        console.print(
+            f"  [dim]session '{TMUX_SESSION_NAME}' already running; attaching...[/]"
+        )
+        os.execvp("tmux", ["tmux", "attach", "-t", TMUX_SESSION_NAME])
+    cmd = _hermesv2_command()
+    console.print(
+        f"  [#a6e3a1]starting daemon session[/] [#89dceb]'{TMUX_SESSION_NAME}'[/]  "
+        f"[dim](Ctrl-B then D to detach; reconnect with `hermesv2 connect`)[/]"
+    )
+    # `-s` names the session, then the rest is the command to run inside it.
+    os.execvp("tmux", ["tmux", "new-session", "-s", TMUX_SESSION_NAME, *cmd])
+
+
+@main.command(name="connect")
+def connect_cmd() -> None:
+    """Attach to a running hermesv2 daemon. Ctrl-B then D to detach."""
+    if not _tmux_available():
+        console.print("  [#f38ba8]tmux not installed.[/]")
+        sys.exit(1)
+    if not _tmux_session_exists(TMUX_SESSION_NAME):
+        console.print(
+            "  [#f38ba8]no daemon running.[/] "
+            "[dim]Start one with:[/] [#89dceb]hermesv2 daemon[/]"
+        )
+        sys.exit(1)
+    os.execvp("tmux", ["tmux", "attach", "-t", TMUX_SESSION_NAME])
+
+
+@main.command(name="daemon-stop")
+def daemon_stop_cmd() -> None:
+    """Kill the running hermesv2 daemon tmux session."""
+    if not _tmux_available() or not _tmux_session_exists(TMUX_SESSION_NAME):
+        console.print("  [dim]no daemon running.[/]")
+        return
+    subprocess.run(["tmux", "kill-session", "-t", TMUX_SESSION_NAME])
+    console.print(f"  [#a6e3a1]stopped daemon session[/] [#89dceb]'{TMUX_SESSION_NAME}'[/]")
+
+
+@main.command(name="daemon-status")
+def daemon_status_cmd() -> None:
+    """Report whether the hermesv2 daemon is running."""
+    if not _tmux_available():
+        console.print("  [#f9e2af]tmux not installed[/] [dim](needed for daemon mode)[/]")
+        return
+    if _tmux_session_exists(TMUX_SESSION_NAME):
+        console.print(
+            f"  [#a6e3a1]running[/] [dim]as tmux session[/] [#89dceb]'{TMUX_SESSION_NAME}'[/]\n"
+            f"  [dim]attach:[/] [#89dceb]hermesv2 connect[/]\n"
+            f"  [dim]kill:  [/] [#89dceb]hermesv2 daemon-stop[/]"
+        )
+    else:
+        console.print(
+            "  [dim]not running.[/] "
+            "[dim]Start:[/] [#89dceb]hermesv2 daemon[/]"
+        )
 
 
 # ---------------------------------------------------------------------------
