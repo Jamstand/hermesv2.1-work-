@@ -290,12 +290,26 @@ def prompt_label() -> str:
     return "\n[bold cyan]▎[/] [bold cyan]you[/] [bold magenta]❱[/] "
 
 
-def assistant_label(console: Console) -> None:
-    console.print("[bold magenta]▎[/] [bold magenta]hermes[/] [bold cyan]❰[/] ", end="")
-
-
 def render_text_delta(console: Console, text: str) -> None:
     console.print(text, end="", soft_wrap=True, highlight=False)
+
+
+def render_assistant_markdown(console: Console, text: str) -> None:
+    """Render a buffered assistant text segment as Markdown.
+
+    Used instead of streaming raw text so things like **bold**, bullet lists,
+    `inline code`, and code fences render with proper styling.
+    """
+    if not text.strip():
+        return
+    from rich.markdown import Markdown
+    md = Markdown(text, code_theme="monokai", inline_code_lexer="python")
+    console.print(md)
+
+
+def assistant_label(console: Console) -> None:
+    # Full line, so the following markdown block renders cleanly below.
+    console.print("[bold magenta]▎ hermes ❰[/]")
 
 
 def render_thinking_delta(console: Console, text: str) -> None:

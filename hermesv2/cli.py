@@ -293,21 +293,7 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
             user_history.append(line)
             stats.start_turn()
-
-            spinner = tui.ThinkingSpinner(console)
-            spinner.start()
-            first_event = True
-            try:
-                async for event in agent.run_stream(line, session_id=session_id):
-                    if first_event:
-                        spinner.stop()
-                        tui.assistant_label(console)
-                        first_event = False
-                    _render_event_tui(event, stats)
-            finally:
-                spinner.stop()
-
-            console.print()
+            await _stream_one_turn(agent, line, session_id, stats, current_model)
             tui.render_status_bar(
                 console, current_model, await _ctx_pct(agent),
                 stats.last_turn_seconds, stats.session_seconds, session_id,
@@ -320,6 +306,50 @@ PERMISSION_ALIASES = {
     "/auto":  "acceptEdits",
     "/yolo":  "bypassPermissions",
 }
+
+
+async def _stream_one_turn(
+    agent: Agent,
+    user_message: str,
+    session_id: str,
+    stats: SessionStats,
+    current_model: str,
+) -> None:
+    """Run one user turn end-to-end: spinner → buffered text → markdown flush.
+
+    Text deltas are buffered (not streamed inline) and rendered as a single
+    Rich Markdown block when a tool call interrupts, or at TurnDone. This
+    makes bullets / headers / code fences actually render with styling.
+    """
+    spinner = tui.ThinkingSpinner(console)
+    spinner.start()
+    spinner_running = True
+    text_buffer: list[str] = []
+    label_shown = False
+
+    def flush_text() -> None:
+        nonlocal label_shown
+        if not text_buffer:
+            return
+        if not label_shown:
+            tui.assistant_label(console)
+            label_shown = True
+        tui.render_assistant_markdown(console, "".join(text_buffer))
+        text_buffer.clear()
+
+    try:
+        async for event in agent.run_stream(user_message, session_id=session_id):
+            if isinstance(event, TextDelta):
+                text_buffer.append(event.text)
+            elif isinstance(event, (ThinkingDelta, ToolCall, ToolResult, TurnDone)):
+                if spinner_running:
+                    spinner.stop()
+                    spinner_running = False
+                flush_text()
+                _render_event_tui(event, stats)
+    finally:
+        spinner.stop()
+        flush_text()
 
 
 async def _handle_slash(
