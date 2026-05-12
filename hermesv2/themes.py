@@ -1,0 +1,211 @@
+"""Themes for hermesv2.
+
+Each theme is a palette of semantic color slots. They map to Rich style
+names (`hermes.*` and `markdown.*`) via build_theme(), so swapping a theme
+swaps every color in the TUI without touching the code that emits styled
+text.
+
+Built-in palettes are listed in PALETTES. The active palette is persisted
+in ~/.hermes-memory/theme so the choice survives restarts.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from rich.theme import Theme
+
+
+@dataclass(frozen=True)
+class Palette:
+    """A complete theme palette.
+
+    Slot meanings (mapped to hermes.* style names downstream):
+      primary    — banner, panel border, panel title, primary labels
+      secondary  — prompt chevron, hermes-label, spinner, **bold** highlights
+      warm       — logo, italic emphasis
+      highlight  — session ID, current marker, slash-command names
+      success    — section headers ("Available Tools"), ok states
+      info       — model name, config values, tool-call labels, links
+      info2      — session marker in status bar, h3 sub-headers
+      error      — errors
+      text       — default body text
+      dim        — subtle / metadata text
+      bg         — primary dark background
+      bg_alt     — darker bg used for dropdown menus + inline code
+    """
+
+    name: str
+    label: str
+    primary: str
+    secondary: str
+    warm: str
+    highlight: str
+    success: str
+    info: str
+    info2: str
+    error: str
+    text: str
+    dim: str
+    bg: str
+    bg_alt: str
+    code_accent: str = ""  # optional override for inline code background
+
+
+PALETTES: dict[str, Palette] = {
+    "catppuccin-mocha": Palette(
+        name="catppuccin-mocha",
+        label="Catppuccin Mocha · warm pastels on dark navy",
+        primary="#cba6f7", secondary="#f5c2e7", warm="#fab387",
+        highlight="#f9e2af", success="#a6e3a1", info="#89dceb", info2="#b4befe",
+        error="#f38ba8", text="#cdd6f4", dim="#a6adc8",
+        bg="#1e1e2e", bg_alt="#181825",
+    ),
+    "tokyo-night": Palette(
+        name="tokyo-night",
+        label="Tokyo Night · cool blues, purple highlights",
+        primary="#7aa2f7", secondary="#bb9af7", warm="#ff9e64",
+        highlight="#e0af68", success="#9ece6a", info="#7dcfff", info2="#b4f9f8",
+        error="#f7768e", text="#c0caf5", dim="#565f89",
+        bg="#1a1b26", bg_alt="#15161e",
+    ),
+    "dracula": Palette(
+        name="dracula",
+        label="Dracula · purple/pink/cyan on midnight",
+        primary="#bd93f9", secondary="#ff79c6", warm="#ffb86c",
+        highlight="#f1fa8c", success="#50fa7b", info="#8be9fd", info2="#bd93f9",
+        error="#ff5555", text="#f8f8f2", dim="#6272a4",
+        bg="#282a36", bg_alt="#1f2029",
+    ),
+    "nord": Palette(
+        name="nord",
+        label="Nord · cool teal/blue/gray, minimalist",
+        primary="#88c0d0", secondary="#b48ead", warm="#d08770",
+        highlight="#ebcb8b", success="#a3be8c", info="#81a1c1", info2="#8fbcbb",
+        error="#bf616a", text="#eceff4", dim="#4c566a",
+        bg="#2e3440", bg_alt="#272c39",
+    ),
+    "gruvbox": Palette(
+        name="gruvbox",
+        label="Gruvbox Dark · warm earth tones, retro",
+        primary="#d3869b", secondary="#fb4934", warm="#fe8019",
+        highlight="#fabd2f", success="#b8bb26", info="#83a598", info2="#8ec07c",
+        error="#cc241d", text="#ebdbb2", dim="#928374",
+        bg="#282828", bg_alt="#1d2021",
+    ),
+    "rose-pine": Palette(
+        name="rose-pine",
+        label="Rose Pine · muted rose, gold, teal",
+        primary="#c4a7e7", secondary="#eb6f92", warm="#f6c177",
+        highlight="#ebbcba", success="#9ccfd8", info="#31748f", info2="#9ccfd8",
+        error="#eb6f92", text="#e0def4", dim="#6e6a86",
+        bg="#191724", bg_alt="#1f1d2e",
+    ),
+}
+
+DEFAULT_THEME = "catppuccin-mocha"
+_THEME_FILE = Path.home() / ".hermes-memory" / "theme"
+
+
+def list_themes() -> list[Palette]:
+    return list(PALETTES.values())
+
+
+def get_palette(name: str) -> Palette:
+    return PALETTES.get(name, PALETTES[DEFAULT_THEME])
+
+
+def load_active_palette() -> Palette:
+    """Read the persisted theme name, falling back to the default."""
+    try:
+        name = _THEME_FILE.read_text().strip()
+    except OSError:
+        return PALETTES[DEFAULT_THEME]
+    return get_palette(name)
+
+
+def save_active_theme(name: str) -> None:
+    """Persist the user's theme choice to disk."""
+    if name not in PALETTES:
+        raise ValueError(f"unknown theme: {name}")
+    _THEME_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _THEME_FILE.write_text(name)
+
+
+def build_theme(p: Palette) -> Theme:
+    """Map a palette to a Rich Theme with both hermes.* and markdown.* styles."""
+    return Theme({
+        # Hermes-specific semantic styles. tui.py + cli.py use these names
+        # instead of hex codes, so a theme swap re-paints the entire UI.
+        "hermes.banner":         f"bold {p.primary}",
+        "hermes.title":          f"bold {p.primary}",
+        "hermes.label.you":      f"bold {p.primary}",
+        "hermes.label.hermes":   f"bold {p.secondary}",
+        "hermes.chevron":        f"bold {p.secondary}",
+        "hermes.bar":            f"bold {p.primary}",
+        "hermes.spinner":        f"bold {p.secondary}",
+        "hermes.logo":           p.warm,
+        "hermes.session":        f"bold {p.highlight}",
+        "hermes.session.marker": f"bold {p.info2}",
+        "hermes.section":        f"bold {p.success}",
+        "hermes.success":        p.success,
+        "hermes.info":           p.info,
+        "hermes.info2":          p.info2,
+        "hermes.warm":           p.warm,
+        "hermes.secondary":      p.secondary,
+        "hermes.highlight":      p.highlight,
+        "hermes.highlight.bold": f"bold {p.highlight}",
+        "hermes.error":          p.error,
+        "hermes.error.bold":     f"bold {p.error}",
+        "hermes.text":           p.text,
+        "hermes.dim":            p.dim,
+        "hermes.tool":           p.info,
+        "hermes.tool.error":     p.error,
+        "hermes.tool.ok":        p.success,
+        "hermes.border":         p.primary,
+        # Rich Markdown overrides — these are what makes **Persistent memory**
+        # mid-sentence pop as bold pink/secondary.
+        "markdown.h1":          f"bold {p.primary}",
+        "markdown.h2":          f"bold {p.primary}",
+        "markdown.h3":          f"bold {p.info2}",
+        "markdown.h4":          f"bold {p.info2}",
+        "markdown.strong":      f"bold {p.secondary}",
+        "markdown.emph":        f"italic {p.warm}",
+        "markdown.code":        f"bold {p.success} on {p.bg_alt}",
+        "markdown.link":        f"underline {p.info}",
+        "markdown.link_url":    f"dim {p.info}",
+        "markdown.item.bullet": f"bold {p.info2}",
+        "markdown.item.number": f"bold {p.info2}",
+        "markdown.block_quote": f"italic {p.dim}",
+        "markdown.hr":          p.primary,
+    })
+
+
+def build_dropdown_style_dict(p: Palette) -> dict[str, str]:
+    """Hex-only dict consumed by prompt_toolkit's Style.from_dict() in cli.py."""
+    return {
+        "completion-menu.completion":               f"bg:{p.bg_alt} {p.info}",
+        "completion-menu.completion.current":       f"bg:{p.primary} {p.bg} bold",
+        "completion-menu.meta.completion":          f"bg:{p.bg_alt} {p.dim}",
+        "completion-menu.meta.completion.current":  f"bg:{p.primary} {p.bg_alt}",
+        "completion-menu.multi-column-meta":        f"bg:{p.bg_alt} {p.dim}",
+        "scrollbar.background":                     f"bg:{p.bg_alt}",
+        "scrollbar.button":                         f"bg:{p.primary}",
+        "slash":                                    p.secondary,
+        "cmd-name":                                 f"{p.info} bold",
+    }
+
+
+def prompt_html(p: Palette) -> str:
+    """The HTML for the chat prompt line: ▎ you ❱"""
+    return (
+        f'<b><style fg="{p.primary}">▎</style></b> '
+        f'<b><style fg="{p.primary}">you</style></b> '
+        f'<b><style fg="{p.secondary}">❱</style></b> '
+    )
+
+
+def picker_prompt_html(p: Palette, label: str) -> str:
+    """HTML for the inline model-picker prompt."""
+    return f'  <style fg="{p.primary}">{label}</style> '
