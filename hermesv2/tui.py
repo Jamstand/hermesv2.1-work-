@@ -9,6 +9,9 @@ Only used by `hermesv2 chat`. `hermesv2 run` stays plain so it pipes cleanly.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
@@ -54,11 +57,48 @@ LOGO = r"""
 """
 
 TOOL_GROUPS: dict[str, list[str]] = {
-    "files":  ["Read", "Write", "Edit"],
-    "search": ["Grep", "Glob"],
-    "shell":  ["Bash"],
-    "web":    ["WebFetch", "WebSearch"],
+    "files":   ["Read", "Write", "Edit", "NotebookEdit"],
+    "search":  ["Grep", "Glob"],
+    "shell":   ["Bash", "BashOutput", "KillShell"],
+    "web":     ["WebFetch", "WebSearch"],
+    "agents":  ["Task", "TodoWrite"],
+    "skills":  ["Skill", "SlashCommand", "ExitPlanMode"],
 }
+
+
+def discover_skills(limit: int = 8) -> list[tuple[str, str]]:
+    """Scan ~/.claude/skills/ for sub-directories containing SKILL.md.
+
+    Returns a list of (name, description) tuples. Description is pulled from
+    the SKILL.md YAML frontmatter when available; otherwise empty.
+    """
+    skills_dir = Path.home() / ".claude" / "skills"
+    if not skills_dir.is_dir():
+        return []
+
+    found: list[tuple[str, str]] = []
+    for child in sorted(skills_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        skill_md = child / "SKILL.md"
+        if not skill_md.is_file():
+            continue
+        description = ""
+        try:
+            head = skill_md.read_text(errors="ignore")[:1500]
+            # Parse YAML frontmatter description: line
+            m = re.search(r"^---\s*\n(.*?)\n---", head, re.DOTALL | re.MULTILINE)
+            if m:
+                for line in m.group(1).splitlines():
+                    if line.lower().startswith("description:"):
+                        description = line.split(":", 1)[1].strip().strip('"').strip("'")
+                        break
+        except OSError:
+            pass
+        found.append((child.name, description))
+        if len(found) >= limit:
+            break
+    return found
 
 
 def render_startup(
@@ -83,42 +123,69 @@ def render_startup(
 def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
     # Build the right-side info column.
     info_lines: list[Text] = [Text()]
-    info_lines.append(Text("  Built-in tools", style="bold green"))
+
+    # Available Tools section
+    info_lines.append(Text("  Available Tools", style="bold green"))
     for group, tools in TOOL_GROUPS.items():
         line = Text("    ")
-        line.append(f"{group:<7}", style="dim")
-        line.append("  ")
+        line.append(f"{group:<8}", style="dim")
+        line.append(": ", style="dim")
         line.append(", ".join(tools), style="white")
+        info_lines.append(line)
+    if settings.mcp_servers:
+        line = Text("    ")
+        line.append(f"{'mcp':<8}", style="dim")
+        line.append(": ", style="dim")
+        line.append(", ".join(settings.mcp_servers.keys()), style="magenta")
         info_lines.append(line)
     info_lines.append(Text())
 
+    # Available Skills section
+    skills = discover_skills(limit=8)
+    if skills:
+        info_lines.append(Text("  Available Skills", style="bold green"))
+        for name, desc in skills:
+            line = Text("    ")
+            line.append(f"{name}", style="cyan")
+            if desc:
+                short = desc if len(desc) < 60 else desc[:60] + "..."
+                line.append(": ", style="dim")
+                line.append(short, style="dim")
+            info_lines.append(line)
+        info_lines.append(Text())
+
+    # Config table
     config_table = [
         ("Model",      settings.model),
         ("Workspace",  settings.workspace_dir),
         ("Effort",     settings.effort),
         ("Thinking",   f"{settings.thinking} · {settings.thinking_display}"),
         ("Permission", settings.permission_mode),
-        ("Session",    session_name or "default (ephemeral)"),
     ]
-    if settings.mcp_servers:
-        config_table.append(("MCP servers", ", ".join(settings.mcp_servers.keys())))
-    if settings.skills and settings.skills != "all":
-        skills_str = settings.skills if isinstance(settings.skills, str) else ", ".join(settings.skills)
-        config_table.append(("Skills", skills_str))
     for key, val in config_table:
         line = Text("  ")
         line.append(f"{key:<12}", style="dim")
         line.append(str(val), style="cyan")
         info_lines.append(line)
+
+    # Session line — prominent, formatted like upstream hermes-agent
+    session_line = Text("  ")
+    session_line.append(f"{'Session':<12}", style="dim")
+    session_line.append(session_name or "(ephemeral)", style="bold yellow")
+    info_lines.append(session_line)
     info_lines.append(Text())
 
-    footer = Text("  ")
-    footer.append("/help", style="bold yellow")
-    footer.append(" for commands · ", style="dim")
-    footer.append("/exit", style="bold yellow")
-    footer.append(" or Ctrl-D quits · ", style="dim")
-    footer.append(f"{len(DEFAULT_TOOLS)} tools available", style="dim")
-    info_lines.append(footer)
+    # Counts + help footer
+    total_tools = len(DEFAULT_TOOLS) + sum(
+        1 for _ in settings.mcp_servers
+    )
+    counts = Text("  ")
+    counts.append(f"{total_tools} tools", style="green")
+    counts.append(" · ", style="dim")
+    counts.append(f"{len(skills)} skills" if skills else "0 skills", style="green")
+    counts.append(" · ", style="dim")
+    counts.append("/help for commands · /exit quits", style="dim")
+    info_lines.append(counts)
     info_lines.append(Text())
 
     # Left-side logo column.
@@ -151,11 +218,12 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
 
 
 def prompt_label() -> str:
-    return "\n[bold blue]you›[/] "
+    # Used by the non-prompt-toolkit path (legacy). New chat uses HTML prompt.
+    return "\n[bold cyan]▎[/] [bold cyan]you[/] [bold magenta]❱[/] "
 
 
 def assistant_label(console: Console) -> None:
-    console.print("[bold magenta]hermes›[/] ", end="")
+    console.print("[bold magenta]▎[/] [bold magenta]hermes[/] [bold cyan]❰[/] ", end="")
 
 
 def render_text_delta(console: Console, text: str) -> None:

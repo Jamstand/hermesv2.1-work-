@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -210,8 +212,14 @@ def chat(ctx: click.Context, session_name: str | None) -> None:
     asyncio.run(_chat(cfg, session_name))
 
 
+def _generate_session_id() -> str:
+    """Timestamp + random suffix, format `20260512_112656_5fcccc`."""
+    return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(3)}"
+
+
 async def _chat(cfg: Config, session_name: str | None = None) -> None:
-    tui.render_startup(console, cfg.agent, session_name=session_name)
+    session_id = session_name or _generate_session_id()
+    tui.render_startup(console, cfg.agent, session_name=session_id)
     stats = SessionStats()
     user_history: list[str] = []
 
@@ -227,17 +235,19 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
         cwd=cfg.agent.workspace_dir,
         resume_session_id=session_name,
     ) as agent:
-        session_id = session_name or "default"
         current_model = cfg.agent.model
 
         tui.render_status_bar(console, current_model, None, 0.0, 0.0, session_id)
 
         while True:
             try:
+                # Single-line prompt. Multi-line caused redraw glitches when
+                # backspacing through `/` completion text.
                 line = await prompt_session.prompt_async(
                     HTML(
-                        "\n<ansicyan>╭─</ansicyan> <b><ansicyan>you</ansicyan></b>\n"
-                        "<ansicyan>╰─</ansicyan><ansimagenta>❯</ansimagenta> "
+                        "\n<b><ansicyan>▎</ansicyan></b> "
+                        "<b><ansicyan>you</ansicyan></b> "
+                        "<b><ansimagenta>❱</ansimagenta></b> "
                     )
                 )
             except (EOFError, KeyboardInterrupt):

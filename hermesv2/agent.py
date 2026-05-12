@@ -32,14 +32,28 @@ from claude_agent_sdk import (
 from hermesv2.config import AgentSettings
 
 DEFAULT_TOOLS = [
+    # Files
     "Read",
     "Write",
     "Edit",
-    "Bash",
+    "NotebookEdit",
+    # Search
     "Grep",
     "Glob",
+    # Shell
+    "Bash",
+    "BashOutput",
+    "KillShell",
+    # Web
     "WebFetch",
     "WebSearch",
+    # Agents
+    "Task",        # spawn sub-agents
+    "TodoWrite",   # internal task tracking for multi-step work
+    # Skills + Plans
+    "Skill",       # invoke skills from ~/.claude/skills
+    "ExitPlanMode",
+    "SlashCommand",
 ]
 
 
