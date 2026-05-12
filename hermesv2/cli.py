@@ -10,6 +10,9 @@ import time
 from pathlib import Path
 
 import click
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
 
 from hermesv2 import tui
@@ -24,6 +27,28 @@ from hermesv2.agent import (
 from hermesv2.config import Config, load_config
 
 console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Slash command autocomplete (prompt-toolkit)
+# ---------------------------------------------------------------------------
+
+
+class SlashCommandCompleter(Completer):
+    """Dropdown that lists known slash commands once the user types `/`."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        for cmd, desc in tui.SLASH_COMMANDS:
+            if cmd.startswith(text):
+                yield Completion(
+                    cmd,
+                    start_position=-len(text),
+                    display=cmd,
+                    display_meta=desc,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +185,12 @@ def chat(ctx: click.Context, session_name: str | None) -> None:
 async def _chat(cfg: Config, session_name: str | None = None) -> None:
     tui.render_startup(console, cfg.agent, session_name=session_name)
     stats = SessionStats()
+    user_history: list[str] = []
+
+    prompt_session: PromptSession[str] = PromptSession(
+        completer=SlashCommandCompleter(),
+        complete_while_typing=True,
+    )
 
     async with Agent(
         cfg.agent,
@@ -173,7 +204,9 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
         while True:
             try:
-                line = await asyncio.to_thread(console.input, tui.prompt_label())
+                line = await prompt_session.prompt_async(
+                    HTML("\n<ansiblue><b>you</b></ansiblue><ansicyan>›</ansicyan> ")
+                )
             except (EOFError, KeyboardInterrupt):
                 console.print("\n[dim]bye.[/]")
                 return
@@ -182,19 +215,24 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
                 continue
 
             if line.startswith("/"):
-                action = await _handle_slash(line, agent, stats, current_model)
+                action = await _handle_slash(
+                    line, agent, stats, current_model, cfg, user_history,
+                )
                 if action == "exit":
                     return
                 if isinstance(action, tuple) and action[0] == "model":
                     current_model = action[1]
+                if action == "reset":
+                    session_id = agent.reset_session()
+                if action == "redraw":
+                    tui.render_startup(console, cfg.agent, session_name=session_id)
                 tui.render_status_bar(
                     console, current_model, await _ctx_pct(agent),
                     stats.last_turn_seconds, stats.session_seconds, session_id,
                 )
-                if action == "reset":
-                    session_id = agent.reset_session()
                 continue
 
+            user_history.append(line)
             tui.assistant_label(console)
             stats.start_turn()
             async for event in agent.run_stream(line, session_id=session_id):
@@ -202,12 +240,17 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
             console.print()
             tui.render_status_bar(
                 console, current_model, await _ctx_pct(agent),
-                stats.last_turn_seconds, stats.session_seconds,
+                stats.last_turn_seconds, stats.session_seconds, session_id,
             )
 
 
 async def _handle_slash(
-    line: str, agent: Agent, stats: SessionStats, current_model: str
+    line: str,
+    agent: Agent,
+    stats: SessionStats,
+    current_model: str,
+    cfg: Config,
+    user_history: list[str],
 ) -> str | tuple[str, str] | None:
     parts = line.split(maxsplit=1)
     cmd = parts[0].lower()
@@ -221,9 +264,34 @@ async def _handle_slash(
     if cmd == "/clear":
         console.clear()
         return None
-    if cmd == "/reset":
-        console.print("[dim](history cleared)[/]")
+    if cmd in ("/reset", "/new"):
+        console.print("[dim](starting fresh session)[/]")
+        user_history.clear()
         return "reset"
+    if cmd == "/redraw":
+        console.clear()
+        return "redraw"
+    if cmd == "/title":
+        if not arg:
+            console.print("  [yellow]usage:[/] /title <name>")
+            return None
+        try:
+            from claude_agent_sdk import rename_session
+            rename_session(agent._client._session_id if agent._client else "default", arg)
+            console.print(f"  [green]session renamed to[/] [cyan]{arg}[/]")
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]rename failed: {e}[/]")
+        return None
+    if cmd == "/history":
+        if not user_history:
+            console.print("[dim]no user prompts yet in this session.[/]")
+            return None
+        console.print("\n[bold cyan]Your prompts this session[/]")
+        for i, prompt in enumerate(user_history[-20:], 1):
+            short = prompt if len(prompt) < 80 else prompt[:80] + "..."
+            console.print(f"  [dim]{i:>2}.[/] {short}")
+        console.print()
+        return None
     if cmd == "/tools":
         tui.render_tools(console)
         return None

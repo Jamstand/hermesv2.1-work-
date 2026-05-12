@@ -273,22 +273,32 @@ def _fmt_seconds(seconds: float) -> str:
     return f"{int(seconds // 3600)}h {int((seconds % 3600) // 60)}m"
 
 
-SLASH_HELP = """[bold cyan]Slash commands[/]
-  [yellow]/help[/]               show this message
-  [yellow]/exit[/] or [yellow]/quit[/]      quit
-  [yellow]/reset[/]              clear conversation history (start a fresh session id)
-  [yellow]/clear[/]              clear the screen
-  [yellow]/context[/]            show current context-window usage
-  [yellow]/stats[/]              show this session's totals
-  [yellow]/sessions[/]           list saved sessions (resume via `hermesv2 --session NAME`)
-  [yellow]/model <name>[/]       switch model mid-session (e.g. claude-sonnet-4-6)
-  [yellow]/tools[/]              list built-in tools (Read, Write, Bash, etc.)
-  [yellow]/update[/]             git pull the latest hermesv2 from origin
-"""
+# Slash commands as structured (command, description) pairs so they can be
+# rendered both as text help AND as completer suggestions.
+SLASH_COMMANDS: list[tuple[str, str]] = [
+    ("/help",     "Show available slash commands"),
+    ("/new",      "Start a new session (fresh history)"),
+    ("/reset",    "Start a new session (alias for /new)"),
+    ("/clear",    "Clear the screen"),
+    ("/redraw",   "Re-render banner + welcome panel"),
+    ("/context",  "Show current context-window usage"),
+    ("/stats",    "Show this session's totals (turns, tokens, time)"),
+    ("/sessions", "List saved Claude Code sessions"),
+    ("/title",    "Set a title for the current session (usage: /title <name>)"),
+    ("/history",  "Show recent user prompts in this session"),
+    ("/tools",    "List built-in tools (Read, Write, Bash, etc.)"),
+    ("/model",    "Switch model mid-session (usage: /model <name>)"),
+    ("/update",   "git pull the latest hermesv2 from origin"),
+    ("/exit",     "Quit hermesv2"),
+    ("/quit",     "Quit hermesv2 (alias for /exit)"),
+]
 
 
 def render_help(console: Console) -> None:
-    console.print(SLASH_HELP)
+    console.print("\n[bold cyan]Slash commands[/]")
+    for cmd, desc in SLASH_COMMANDS:
+        console.print(f"  [yellow]{cmd:<12}[/]  [dim]{desc}[/]")
+    console.print()
 
 
 def render_tools(console: Console) -> None:
