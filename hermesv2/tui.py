@@ -9,8 +9,12 @@ Only used by `hermesv2 chat`. `hermesv2 run` stays plain so it pipes cleanly.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import itertools
 import re
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -215,6 +219,70 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
         border_style="cyan",
         padding=(0, 1),
     )
+
+
+# Rotating verbs so the spinner doesn't feel stuck on long thinks.
+THINKING_VERBS = [
+    "thinking",
+    "pondering",
+    "reasoning",
+    "considering",
+    "analyzing",
+    "deliberating",
+    "exploring",
+    "reflecting",
+    "weighing options",
+    "drafting a response",
+]
+
+
+class ThinkingSpinner:
+    """A Rich spinner with a rotating verb, for the gap between submit and first reply.
+
+    Start before iterating the agent stream, stop on the first event so the
+    assistant label and content can render cleanly.
+    """
+
+    def __init__(self, console: Console, rotate_seconds: float = 1.5) -> None:
+        self._console = console
+        self._rotate_seconds = rotate_seconds
+        self._status: Any = None
+        self._task: asyncio.Task[None] | None = None
+        self._verbs = itertools.cycle(THINKING_VERBS)
+        self._stopped = False
+
+    def _label(self, verb: str) -> str:
+        return f"[bold magenta]{verb}...[/]"
+
+    def start(self) -> None:
+        if self._status is not None:
+            return
+        verb = next(self._verbs)
+        self._status = self._console.status(self._label(verb), spinner="dots", spinner_style="magenta")
+        self._status.__enter__()
+        self._task = asyncio.create_task(self._rotate())
+
+    async def _rotate(self) -> None:
+        try:
+            while not self._stopped:
+                await asyncio.sleep(self._rotate_seconds)
+                if self._stopped or self._status is None:
+                    return
+                self._status.update(self._label(next(self._verbs)))
+        except asyncio.CancelledError:
+            pass
+
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        if self._task is not None:
+            self._task.cancel()
+            self._task = None
+        if self._status is not None:
+            with contextlib.suppress(Exception):
+                self._status.__exit__(None, None, None)
+            self._status = None
 
 
 def prompt_label() -> str:

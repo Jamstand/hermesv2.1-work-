@@ -279,10 +279,21 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
                 continue
 
             user_history.append(line)
-            tui.assistant_label(console)
             stats.start_turn()
-            async for event in agent.run_stream(line, session_id=session_id):
-                _render_event_tui(event, stats)
+
+            spinner = tui.ThinkingSpinner(console)
+            spinner.start()
+            first_event = True
+            try:
+                async for event in agent.run_stream(line, session_id=session_id):
+                    if first_event:
+                        spinner.stop()
+                        tui.assistant_label(console)
+                        first_event = False
+                    _render_event_tui(event, stats)
+            finally:
+                spinner.stop()
+
             console.print()
             tui.render_status_bar(
                 console, current_model, await _ctx_pct(agent),
