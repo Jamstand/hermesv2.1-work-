@@ -61,6 +61,7 @@ In the chat REPL:
 | `list_dir`    | Local         | One level deep. |
 | `send_email`  | Local (SMTP)  | Off by default; flip `tools.email` and set `SMTP_*` env vars. |
 | `read_inbox`  | Local (IMAP)  | Same. |
+| subscription tools | Local (JSON) | Off by default; flip `tools.subscriptions.enabled`. Adds `add_subscription`, `list_subscriptions`, `update_subscription`, `remove_subscription`, `subscription_summary`, `upcoming_renewals`. |
 | `web_search`  | Server-side   | Built-in Claude tool. |
 | `web_fetch`   | Server-side   | Built-in Claude tool. |
 

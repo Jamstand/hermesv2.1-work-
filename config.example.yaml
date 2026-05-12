@@ -36,6 +36,9 @@ tools:
     enabled: true
     # Restrict file reads/writes to these absolute paths. Empty = no restriction.
     allowed_roots: []
+  subscriptions:
+    enabled: false              # flip on to track recurring charges in a local JSON store
+    store_path: ~/.config/hermesv2/subscriptions.json
   web:
     enabled: true               # uses Anthropic server-side web_search + web_fetch
   email:

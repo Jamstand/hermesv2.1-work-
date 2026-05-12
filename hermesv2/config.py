@@ -55,9 +55,18 @@ class FilesToolSettings:
 
 
 @dataclass
+class SubscriptionsToolSettings:
+    enabled: bool = False
+    store_path: str = "~/.config/hermesv2/subscriptions.json"
+
+
+@dataclass
 class ToolSettings:
     shell: ShellToolSettings = field(default_factory=ShellToolSettings)
     files: FilesToolSettings = field(default_factory=FilesToolSettings)
+    subscriptions: SubscriptionsToolSettings = field(
+        default_factory=SubscriptionsToolSettings
+    )
     web: bool = True
     email: bool = False
 
