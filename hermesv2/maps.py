@@ -162,6 +162,45 @@ def fetch_tile(x: int, y: int, z: int, timeout: float = 12.0) -> bytes | None:
     return None
 
 
+def fetch_and_stitch(lat: float, lon: float, zoom: int, tiles: int = 2) -> bytes | None:
+    """Fetch a tiles×tiles grid centered on (lat, lon) and stitch to one PNG.
+
+    `tiles=1` fetches just the single tile containing the point.
+    `tiles=2` fetches a 2×2 grid (more area + 4x the source pixels for braille).
+    Requires Pillow. Returns combined PNG bytes, or None if any tile fetch fails.
+    """
+    if tiles < 1:
+        tiles = 1
+    cx, cy = latlon_to_tile(lat, lon, zoom)
+
+    if tiles == 1:
+        return fetch_tile(cx, cy, zoom)
+
+    try:
+        from PIL import Image
+    except ImportError:
+        return fetch_tile(cx, cy, zoom)
+
+    # Compute the offset range so the point is roughly centered.
+    half_low = tiles // 2
+    half_high = tiles - half_low  # 1 more for odd N
+    xs = range(cx - half_low, cx + half_high)
+    ys = range(cy - half_low, cy + half_high)
+
+    canvas = Image.new("RGB", (tiles * 256, tiles * 256), (255, 255, 255))
+    for i, ty in enumerate(ys):
+        for j, tx in enumerate(xs):
+            png = fetch_tile(tx, ty, zoom)
+            if png is None:
+                return None
+            tile_img = Image.open(io.BytesIO(png)).convert("RGB")
+            canvas.paste(tile_img, (j * 256, i * 256))
+
+    buf = io.BytesIO()
+    canvas.save(buf, "PNG")
+    return buf.getvalue()
+
+
 # Braille dot positions in a 2×4 cell, mapped to bit masks of U+2800.
 #   1 (0x01)  4 (0x08)
 #   2 (0x02)  5 (0x10)
@@ -211,18 +250,25 @@ def png_to_braille(
     return "\n".join(lines)
 
 
-def render_map(query: str, zoom: int = 14, cols: int = 60, rows: int = 18) -> dict[str, Any]:
-    """All-in-one: geocode → tile fetch → braille render.
+def render_map(
+    query: str,
+    zoom: int = 15,
+    cols: int = 60,
+    rows: int = 18,
+    tiles: int = 2,
+) -> dict[str, Any]:
+    """All-in-one: geocode → multi-tile fetch + stitch → braille render.
 
-    Returns a dict with keys: place, lat, lon, braille, error. Any may be None.
-    `error` is a single human-readable line when something went wrong.
+    `tiles=N` stitches an NxN grid (1 = single tile, 2 = 4 tiles = 4x source
+    pixels = much sharper braille). Returns: place, lat, lon, braille, error,
+    zoom — any may be None.
     """
     result: dict[str, Any] = {
-        "place": None, "lat": None, "lon": None, "braille": None, "error": None,
+        "place": None, "lat": None, "lon": None,
+        "braille": None, "error": None, "zoom": zoom,
     }
     geo, attempts = geocode(query)
     if geo is None:
-        # Pick the most informative attempt to surface.
         reasons = [a.reason for a in attempts]
         if all(r == "no_result" for r in reasons):
             result["error"] = f"no place found matching '{query}'"
@@ -240,9 +286,30 @@ def render_map(query: str, zoom: int = 14, cols: int = 60, rows: int = 18) -> di
     result["place"] = geo.display_name
     result["lat"] = geo.lat
     result["lon"] = geo.lon
+    return _render_at(result, zoom, cols, rows, tiles)
 
-    tx, ty = latlon_to_tile(geo.lat, geo.lon, zoom)
-    png = fetch_tile(tx, ty, zoom)
+
+def render_map_at(
+    lat: float,
+    lon: float,
+    place: str,
+    zoom: int = 15,
+    cols: int = 60,
+    rows: int = 18,
+    tiles: int = 2,
+) -> dict[str, Any]:
+    """Re-render a known location at a different zoom. Used by /zoomin /zoomout."""
+    result: dict[str, Any] = {
+        "place": place, "lat": lat, "lon": lon,
+        "braille": None, "error": None, "zoom": zoom,
+    }
+    return _render_at(result, zoom, cols, rows, tiles)
+
+
+def _render_at(
+    result: dict[str, Any], zoom: int, cols: int, rows: int, tiles: int,
+) -> dict[str, Any]:
+    png = fetch_and_stitch(result["lat"], result["lon"], zoom, tiles=tiles)
     if png is None:
         result["error"] = "map tile fetch failed (network or tile.openstreetmap.org blocked)"
         return result
@@ -253,6 +320,7 @@ def render_map(query: str, zoom: int = 14, cols: int = 60, rows: int = 18) -> di
         return result
 
     result["braille"] = braille
+    result["zoom"] = zoom
     return result
 
 

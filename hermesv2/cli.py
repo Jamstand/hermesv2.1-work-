@@ -10,6 +10,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 from prompt_toolkit import PromptSession
@@ -51,6 +52,46 @@ MARKDOWN_THEME = Theme({
 })
 
 console = Console(theme=MARKDOWN_THEME)
+
+# Last /maps result, used by /zoomin and /zoomout for incremental re-render.
+# Shape: {"query": str, "place": str, "lat": float, "lon": float, "zoom": int}
+_LAST_MAP: dict[str, Any] | None = None
+
+
+def _render_map_panel(result: dict[str, Any]) -> None:
+    """Print the bordered braille map (or fallback) for one /maps result."""
+    if result.get("place"):
+        title = Text()
+        title.append(" ", style="dim")
+        title.append(result["place"][:80], style="bold #cba6f7")
+        if result.get("lat") is not None and result.get("lon") is not None:
+            title.append(
+                f"  · {result['lat']:.4f}, {result['lon']:.4f}",
+                style="dim",
+            )
+        if result.get("zoom") is not None:
+            title.append(f"  · z{result['zoom']}", style="#fab387")
+    else:
+        title = Text(" map ", style="bold #cba6f7")
+
+    if result.get("braille"):
+        from rich.panel import Panel as RPanel
+        panel = RPanel(
+            Text(result["braille"], style="bold #cba6f7"),
+            title=title,
+            border_style="#cba6f7",
+            padding=(0, 1),
+        )
+        console.print(panel)
+    else:
+        if result.get("place"):
+            console.print(f"  [#89dceb]{result['place']}[/]")
+        if result.get("lat") is not None:
+            console.print(
+                f"  [dim]coords:[/] [#89dceb]{result['lat']:.4f}, {result['lon']:.4f}[/]"
+            )
+        if result.get("error"):
+            console.print(f"  [#f9e2af]map render:[/] [dim]{result['error']}[/]")
 
 
 # ---------------------------------------------------------------------------
@@ -467,65 +508,86 @@ async def _handle_slash(
         console.print(f"  [dim]using[/] [#89dceb]{latest.name}[/] [dim]from {latest.parent}[/]")
         return ("retry", full_prompt)
 
-    # --- Maps (geocode + inline braille map + browser open + agent ask) ----
+    # --- Maps (geocode + stitched braille map + browser open + agent ask) ---
     if cmd == "/maps":
         if not arg:
-            console.print("  [#f9e2af]usage:[/] /maps <place or query>")
+            console.print("  [#f9e2af]usage:[/] /maps <place or query> [z<N>]")
             return None
         import urllib.parse
 
         from hermesv2 import maps as mapsmod
 
-        encoded = urllib.parse.quote_plus(arg)
+        # Allow "z<N>" anywhere in the query to override zoom (e.g. /maps Bayside z17)
+        zoom = 15
+        tokens = []
+        for tok in arg.split():
+            if tok.lower().startswith("z") and tok[1:].isdigit():
+                zoom = max(1, min(19, int(tok[1:])))
+            else:
+                tokens.append(tok)
+        query = " ".join(tokens).strip() or arg
+
+        encoded = urllib.parse.quote_plus(query)
         url = f"https://www.google.com/maps/search/?api=1&query={encoded}"
 
-        console.print(f"  [dim]searching maps for[/] [#89dceb]{arg}[/]...")
-        # Size the braille map to the terminal width, with a sensible cap.
+        console.print(f"  [dim]searching maps for[/] [#89dceb]{query}[/] [dim](z{zoom})[/]...")
         term_w = max(40, min(console.size.width - 6, 90))
-        result = mapsmod.render_map(arg, cols=term_w, rows=18)
+        result = mapsmod.render_map(query, zoom=zoom, cols=term_w, rows=18, tiles=2)
 
-        if result["place"]:
-            title = Text()
-            title.append(" ", style="dim")
-            title.append(result["place"][:80], style="bold #cba6f7")
-            if result["lat"] is not None and result["lon"] is not None:
-                title.append(
-                    f"  · {result['lat']:.4f}, {result['lon']:.4f}",
-                    style="dim",
-                )
-        else:
-            title = Text(f" {arg} ", style="bold #cba6f7")
+        _render_map_panel(result)
 
-        if result["braille"]:
-            from rich.panel import Panel as RPanel
-            panel = RPanel(
-                Text(result["braille"], style="bold #cba6f7"),
-                title=title,
-                border_style="#cba6f7",
-                padding=(0, 1),
-            )
-            console.print(panel)
-        else:
-            console.print(f"  [#89dceb]{result.get('place') or arg}[/]")
-            if result.get("lat") is not None:
-                console.print(
-                    f"  [dim]coords:[/] [#89dceb]{result['lat']:.4f}, {result['lon']:.4f}[/]"
-                )
-            if result.get("error"):
-                console.print(f"  [#f9e2af]map render:[/] [dim]{result['error']}[/]")
+        if result.get("lat") is not None:
+            global _LAST_MAP
+            _LAST_MAP = {
+                "query": query,
+                "place": result["place"],
+                "lat": result["lat"],
+                "lon": result["lon"],
+                "zoom": result["zoom"],
+            }
 
         opened = _open_in_browser(url)
         if opened:
             console.print(f"  [#a6e3a1]opened in browser:[/] [#89dceb]{url}[/]")
         else:
             console.print(f"  [dim]copy and open in browser:[/] [#89dceb]{url}[/]")
+        console.print(
+            "  [dim]/zoomin · /zoomout to re-render at a different zoom level[/]"
+        )
 
         full_prompt = (
-            f"Look up '{arg}' on Google Maps and tell me the address, hours, rating, "
+            f"Look up '{query}' on Google Maps and tell me the address, hours, rating, "
             f"and any notable details. Use web_search and web_fetch as needed. "
             f"Cite sources.\n\nMaps URL for reference: {url}"
         )
         return ("retry", full_prompt)
+
+    # --- Zoom in / out (re-render the last /maps result) ------------------
+    if cmd in ("/zoomin", "/zoomout"):
+        global _LAST_MAP  # noqa: PLW0602 — declared above; ruff still wants this
+        if _LAST_MAP is None:
+            console.print(
+                "  [#f38ba8]no map yet[/] [dim]— run /maps <query> first[/]"
+            )
+            return None
+        delta = 1 if cmd == "/zoomin" else -1
+        new_zoom = max(1, min(19, _LAST_MAP["zoom"] + delta))
+        if new_zoom == _LAST_MAP["zoom"]:
+            console.print(f"  [dim]already at zoom limit (z{new_zoom})[/]")
+            return None
+        from hermesv2 import maps as mapsmod
+        term_w = max(40, min(console.size.width - 6, 90))
+        console.print(
+            f"  [dim]re-rendering[/] [#89dceb]{_LAST_MAP['place'][:60]}[/] "
+            f"[dim]at z{new_zoom}...[/]"
+        )
+        result = mapsmod.render_map_at(
+            _LAST_MAP["lat"], _LAST_MAP["lon"], _LAST_MAP["place"],
+            zoom=new_zoom, cols=term_w, rows=18, tiles=2,
+        )
+        _render_map_panel(result)
+        _LAST_MAP["zoom"] = new_zoom
+        return None
 
     # --- Plugin (shells to `claude plugin ...`) ----------------------------
     if cmd == "/plugin":
