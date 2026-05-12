@@ -1,4 +1,4 @@
-"""Hermes v2 CLI: `hermesv2 chat | run | doctor | slack | discord`."""
+"""Hermes v2 CLI: `hermesv2 [chat] | run | doctor | slack | discord | update`."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -23,6 +24,11 @@ from hermesv2.agent import (
 from hermesv2.config import Config, load_config
 
 console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Event rendering
+# ---------------------------------------------------------------------------
 
 
 def _render_event_plain(event: object) -> None:
@@ -49,8 +55,8 @@ def _render_event_plain(event: object) -> None:
         )
 
 
-def _render_event_tui(event: object) -> None:
-    """Fancy rendering for `hermesv2 chat`."""
+def _render_event_tui(event: object, stats: SessionStats) -> None:
+    """Fancy rendering for `hermesv2 chat`. Updates running stats too."""
     if isinstance(event, TextDelta):
         tui.render_text_delta(console, event.text)
     elif isinstance(event, ThinkingDelta):
@@ -61,18 +67,66 @@ def _render_event_tui(event: object) -> None:
         tui.render_tool_result(console, event.name, event.output, event.is_error)
     elif isinstance(event, TurnDone):
         tui.render_turn_footer(console, event.stop_reason, event.cost_usd, event.usage)
+        stats.record(event)
 
 
-@click.group()
+# ---------------------------------------------------------------------------
+# Session stats
+# ---------------------------------------------------------------------------
+
+
+class SessionStats:
+    def __init__(self) -> None:
+        self.start_ts = time.monotonic()
+        self.turn_start_ts = self.start_ts
+        self.turn_end_ts = self.start_ts
+        self.turns = 0
+        self.total_input = 0
+        self.total_output = 0
+        self.total_cost = 0.0
+
+    def start_turn(self) -> None:
+        self.turn_start_ts = time.monotonic()
+
+    def record(self, event: TurnDone) -> None:
+        self.turn_end_ts = time.monotonic()
+        self.turns += 1
+        usage = event.usage or {}
+        self.total_input += usage.get("input_tokens") or 0
+        self.total_output += usage.get("output_tokens") or 0
+        if event.cost_usd:
+            self.total_cost += event.cost_usd
+
+    @property
+    def session_seconds(self) -> float:
+        return time.monotonic() - self.start_ts
+
+    @property
+    def last_turn_seconds(self) -> float:
+        return max(0.0, self.turn_end_ts - self.turn_start_ts)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+@click.group(invoke_without_command=True)
+@click.option("--config", "config_path", default=None, help="Path to config YAML.")
 @click.version_option()
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context, config_path: str | None) -> None:
     """Hermes v2 — personal agent on top of Claude Code (uses your Max subscription)."""
+    ctx.ensure_object(dict)
+    ctx.obj["config_path"] = config_path
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(chat)
 
 
 @main.command()
-@click.option("--config", "config_path", default=None, help="Path to config YAML.")
 @click.argument("prompt", nargs=-1)
-def run(config_path: str | None, prompt: tuple[str, ...]) -> None:
+@click.pass_context
+def run(ctx: click.Context, prompt: tuple[str, ...]) -> None:
     """Run a single prompt and exit. Reads from stdin if no prompt is given."""
     if prompt:
         message = " ".join(prompt)
@@ -82,7 +136,7 @@ def run(config_path: str | None, prompt: tuple[str, ...]) -> None:
         console.print("[red]No prompt given. Pass one as args or pipe via stdin.[/]")
         sys.exit(2)
 
-    cfg = load_config(config_path)
+    cfg = load_config(ctx.obj.get("config_path"))
     asyncio.run(_run_one(cfg, message))
 
 
@@ -94,17 +148,23 @@ async def _run_one(cfg: Config, message: str) -> None:
 
 
 @main.command()
-@click.option("--config", "config_path", default=None, help="Path to config YAML.")
-def chat(config_path: str | None) -> None:
-    """Interactive REPL. /reset clears history; Ctrl-D or 'exit' to quit."""
-    cfg = load_config(config_path)
+@click.pass_context
+def chat(ctx: click.Context) -> None:
+    """Interactive REPL. Default if no subcommand is given."""
+    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
     asyncio.run(_chat(cfg))
 
 
 async def _chat(cfg: Config) -> None:
     tui.render_startup(console, cfg.agent)
+    stats = SessionStats()
+
     async with Agent(cfg.agent, cwd=cfg.agent.workspace_dir) as agent:
         session_id = "default"
+        current_model = cfg.agent.model
+
+        tui.render_status_bar(console, current_model, None, 0.0, 0.0)
+
         while True:
             try:
                 line = await asyncio.to_thread(console.input, tui.prompt_label())
@@ -114,17 +174,160 @@ async def _chat(cfg: Config) -> None:
             line = line.strip()
             if not line:
                 continue
-            if line in ("exit", "quit", "/exit", "/quit"):
-                return
-            if line == "/reset":
-                session_id = agent.reset_session()
-                console.print("[dim](history cleared)[/]")
+
+            if line.startswith("/"):
+                action = await _handle_slash(line, agent, stats, current_model)
+                if action == "exit":
+                    return
+                if isinstance(action, tuple) and action[0] == "model":
+                    current_model = action[1]
+                tui.render_status_bar(
+                    console, current_model, await _ctx_pct(agent),
+                    stats.last_turn_seconds, stats.session_seconds,
+                )
+                if action == "reset":
+                    session_id = agent.reset_session()
                 continue
 
             tui.assistant_label(console)
+            stats.start_turn()
             async for event in agent.run_stream(line, session_id=session_id):
-                _render_event_tui(event)
+                _render_event_tui(event, stats)
             console.print()
+            tui.render_status_bar(
+                console, current_model, await _ctx_pct(agent),
+                stats.last_turn_seconds, stats.session_seconds,
+            )
+
+
+async def _handle_slash(
+    line: str, agent: Agent, stats: SessionStats, current_model: str
+) -> str | tuple[str, str] | None:
+    parts = line.split(maxsplit=1)
+    cmd = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if cmd in ("/exit", "/quit"):
+        return "exit"
+    if cmd == "/help":
+        tui.render_help(console)
+        return None
+    if cmd == "/clear":
+        console.clear()
+        return None
+    if cmd == "/reset":
+        console.print("[dim](history cleared)[/]")
+        return "reset"
+    if cmd == "/tools":
+        tui.render_tools(console)
+        return None
+    if cmd == "/stats":
+        tui.render_stats(
+            console, stats.turns, stats.total_input, stats.total_output,
+            stats.total_cost, stats.session_seconds,
+        )
+        return None
+    if cmd == "/context":
+        usage = await _get_context_usage(agent)
+        if usage is None:
+            console.print("[dim]Context usage unavailable.[/]")
+        else:
+            console.print(f"  [dim]Context: {usage}[/]")
+        return None
+    if cmd == "/model":
+        if not arg:
+            console.print(f"  current model: [cyan]{current_model}[/]")
+            return None
+        if agent._client is None:
+            console.print("[red]Agent not connected.[/]")
+            return None
+        try:
+            await agent._client.set_model(arg)
+            console.print(f"  [green]switched model to[/] [cyan]{arg}[/]")
+            return ("model", arg)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]Failed to switch model: {e}[/]")
+            return None
+    if cmd == "/update":
+        await _run_update_async()
+        return None
+
+    console.print(f"[red]Unknown command: {cmd}. Type /help for a list.[/]")
+    return None
+
+
+async def _ctx_pct(agent: Agent) -> float | None:
+    """Best-effort context-usage percentage. Returns None if unsupported."""
+    if agent._client is None:
+        return None
+    try:
+        usage = await _maybe_await(agent._client.get_context_usage())
+        # ContextUsageResponse field name has shifted across SDK versions —
+        # try the common ones, fall back to None.
+        for attr in ("percentage", "context_percentage", "used_pct"):
+            val = getattr(usage, attr, None)
+            if val is not None:
+                return float(val)
+        used = getattr(usage, "tokens_used", None) or getattr(usage, "used", None)
+        total = getattr(usage, "total_tokens", None) or getattr(usage, "max_tokens", None)
+        if used and total:
+            return 100.0 * float(used) / float(total)
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+async def _get_context_usage(agent: Agent) -> str | None:
+    if agent._client is None:
+        return None
+    try:
+        usage = await _maybe_await(agent._client.get_context_usage())
+        return str(usage)
+    except Exception as e:  # noqa: BLE001
+        return f"(error: {e})"
+
+
+async def _maybe_await(value):
+    if hasattr(value, "__await__"):
+        return await value
+    return value
+
+
+async def _run_update_async() -> None:
+    await asyncio.to_thread(_run_update)
+
+
+def _run_update() -> None:
+    repo = _find_repo_root()
+    if repo is None:
+        console.print("[red]Couldn't locate the hermesv2 git checkout.[/]")
+        return
+    console.print(f"[dim]git pull in {repo}...[/]")
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "pull"], capture_output=True, text=True, timeout=60
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    console.print(out.strip() or "(no output)")
+    if proc.returncode == 0:
+        console.print(
+            "[green]Update fetched.[/] [dim]Restart hermesv2 chat to pick up changes.[/]"
+        )
+    else:
+        console.print(f"[red]git pull failed (exit {proc.returncode}).[/]")
+
+
+def _find_repo_root() -> Path | None:
+    here = Path(__file__).resolve()
+    for ancestor in [here, *here.parents]:
+        if (ancestor / ".git").is_dir():
+            return ancestor
+    return None
+
+
+@main.command()
+def update() -> None:
+    """`git pull` the latest hermesv2 from origin."""
+    _run_update()
 
 
 @main.command()
@@ -209,8 +412,7 @@ def doctor() -> None:
 
     if required_ok:
         console.print(
-            "\n[bold green]All required checks passed.[/] You should be able to run "
-            "`hermesv2 run \"hi\"`."
+            "\n[bold green]All required checks passed.[/] Just type [cyan]hermesv2[/]."
         )
     else:
         console.print(
@@ -222,20 +424,20 @@ def doctor() -> None:
 
 
 @main.command()
-@click.option("--config", "config_path", default=None, help="Path to config YAML.")
-def slack(config_path: str | None) -> None:
+@click.pass_context
+def slack(ctx: click.Context) -> None:
     """Run the Slack bot (Socket Mode)."""
     from hermesv2.platforms.slack import run_slack_bot
 
-    cfg = load_config(config_path)
+    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
     asyncio.run(run_slack_bot(cfg))
 
 
 @main.command()
-@click.option("--config", "config_path", default=None, help="Path to config YAML.")
-def discord(config_path: str | None) -> None:
+@click.pass_context
+def discord(ctx: click.Context) -> None:
     """Run the Discord bot."""
     from hermesv2.platforms.discord import run_discord_bot
 
-    cfg = load_config(config_path)
+    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
     asyncio.run(run_discord_bot(cfg))

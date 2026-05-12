@@ -144,3 +144,89 @@ def render_turn_footer(
     line.append("Max subscription", style="magenta")
     console.print()
     console.print(line)
+
+
+def render_status_bar(
+    console: Console,
+    model: str,
+    ctx_pct: float | None,
+    turn_seconds: float,
+    session_seconds: float,
+) -> None:
+    """Status line printed between turns, mimicking the upstream bottom bar."""
+    if ctx_pct is None:
+        ctx_str = "ctx --"
+        bar = "[░░░░░░░░░░] --"
+    else:
+        filled = max(0, min(10, int(round(ctx_pct / 10))))
+        bar_chars = "█" * filled + "░" * (10 - filled)
+        ctx_str = f"ctx {ctx_pct:.0f}%"
+        bar = f"[{bar_chars}] {ctx_pct:.0f}%"
+
+    parts = Text()
+    parts.append(" ⚕ ", style="bold magenta")
+    parts.append(model, style="cyan")
+    parts.append(" │ ", style="dim")
+    parts.append(ctx_str, style="green" if ctx_pct and ctx_pct < 70 else "yellow")
+    parts.append(" │ ", style="dim")
+    parts.append(bar, style="dim")
+    parts.append(" │ ", style="dim")
+    parts.append(f"{_fmt_seconds(session_seconds)}", style="dim")
+    parts.append(" │ ⏲ ", style="dim")
+    parts.append(f"{_fmt_seconds(turn_seconds)}", style="dim")
+    console.print(parts)
+
+
+def _fmt_seconds(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+    return f"{int(seconds // 3600)}h {int((seconds % 3600) // 60)}m"
+
+
+SLASH_HELP = """[bold cyan]Slash commands[/]
+  [yellow]/help[/]               show this message
+  [yellow]/exit[/] or [yellow]/quit[/]      quit
+  [yellow]/reset[/]              clear conversation history
+  [yellow]/clear[/]              clear the screen
+  [yellow]/context[/]            show current context-window usage
+  [yellow]/stats[/]              show this session's totals
+  [yellow]/model <name>[/]       switch model mid-session (e.g. claude-sonnet-4-6)
+  [yellow]/tools[/]              list built-in tools
+  [yellow]/update[/]              git pull the latest hermesv2 from origin
+"""
+
+
+def render_help(console: Console) -> None:
+    console.print(SLASH_HELP)
+
+
+def render_tools(console: Console) -> None:
+    console.print("\n[bold green]Built-in tools[/]")
+    for group, tools in TOOL_GROUPS.items():
+        line = Text("  ")
+        line.append(f"{group:<8}", style="dim")
+        line.append(", ".join(tools), style="white")
+        console.print(line)
+    console.print()
+
+
+def render_stats(
+    console: Console, turns: int, total_input: int, total_output: int,
+    total_cost: float, session_seconds: float,
+) -> None:
+    line = Text()
+    line.append("\n  session  ", style="bold cyan")
+    line.append(f"{turns} turn{'s' if turns != 1 else ''}", style="green")
+    line.append(" · ", style="dim")
+    line.append(f"in {total_input} / out {total_output} tokens", style="dim")
+    line.append(" · ", style="dim")
+    if total_cost > 0:
+        line.append(f"~${total_cost:.4f} equiv", style="dim")
+        line.append(" · ", style="dim")
+    line.append(f"{_fmt_seconds(session_seconds)} elapsed", style="dim")
+    line.append(" · ", style="dim")
+    line.append("billed to Max subscription", style="magenta")
+    console.print(line)
+    console.print()
