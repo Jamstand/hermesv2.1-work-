@@ -11,7 +11,7 @@ agent:
                                 # `bypassPermissions` — never prompts; full trust (use carefully)
   workspace_dir: ~/hermes-workspace   # cwd for Read/Write/Bash/Edit/Grep
   system_prompt: |
-    You are Hermes v2, a personal AI agent helping with work tasks.
+    You are Hermes v2 (work edition), a personal AI agent helping with work tasks.
 
     You have built-in tools for reading and writing files, running shell
     commands, searching/fetching the web, and editing text. Use them to
@@ -23,3 +23,27 @@ agent:
         confirm intent in plain language before acting.
       - Cite sources (URLs) when answering factual questions from the web.
       - If a task is ambiguous, ask one clear question rather than guessing.
+
+  # Optional: extra dirs the agent can read/write outside its workspace.
+  # Useful when you want to point it at a project repo without `cd`'ing.
+  add_dirs:
+    # - ~/projects/work
+
+  # Optional: which Claude Code skills to load. "all" loads everything in
+  # ~/.claude/skills/; or list names to load only specific ones.
+  skills: all
+
+  # Optional: MCP servers. The Agent SDK passes these to the spawned claude
+  # subprocess. Each entry is a name → connection config.
+  # See https://modelcontextprotocol.io for available servers.
+  mcp_servers: {}
+  #   filesystem:
+  #     type: stdio
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/josh/projects"]
+  #   github:
+  #     type: stdio
+  #     command: npx
+  #     args: ["-y", "@modelcontextprotocol/server-github"]
+  #     env:
+  #       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PAT}

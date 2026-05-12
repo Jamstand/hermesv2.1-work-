@@ -148,22 +148,28 @@ async def _run_one(cfg: Config, message: str) -> None:
 
 
 @main.command()
+@click.option("--session", "session_name", default=None,
+              help="Named session to start/resume. Persists across runs.")
 @click.pass_context
-def chat(ctx: click.Context) -> None:
+def chat(ctx: click.Context, session_name: str | None) -> None:
     """Interactive REPL. Default if no subcommand is given."""
     cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
-    asyncio.run(_chat(cfg))
+    asyncio.run(_chat(cfg, session_name))
 
 
-async def _chat(cfg: Config) -> None:
-    tui.render_startup(console, cfg.agent)
+async def _chat(cfg: Config, session_name: str | None = None) -> None:
+    tui.render_startup(console, cfg.agent, session_name=session_name)
     stats = SessionStats()
 
-    async with Agent(cfg.agent, cwd=cfg.agent.workspace_dir) as agent:
-        session_id = "default"
+    async with Agent(
+        cfg.agent,
+        cwd=cfg.agent.workspace_dir,
+        resume_session_id=session_name,
+    ) as agent:
+        session_id = session_name or "default"
         current_model = cfg.agent.model
 
-        tui.render_status_bar(console, current_model, None, 0.0, 0.0)
+        tui.render_status_bar(console, current_model, None, 0.0, 0.0, session_id)
 
         while True:
             try:
@@ -183,7 +189,7 @@ async def _chat(cfg: Config) -> None:
                     current_model = action[1]
                 tui.render_status_bar(
                     console, current_model, await _ctx_pct(agent),
-                    stats.last_turn_seconds, stats.session_seconds,
+                    stats.last_turn_seconds, stats.session_seconds, session_id,
                 )
                 if action == "reset":
                     session_id = agent.reset_session()
@@ -251,9 +257,25 @@ async def _handle_slash(
     if cmd == "/update":
         await _run_update_async()
         return None
+    if cmd == "/sessions":
+        await _list_sessions_async()
+        return None
 
     console.print(f"[red]Unknown command: {cmd}. Type /help for a list.[/]")
     return None
+
+
+async def _list_sessions_async() -> None:
+    from claude_agent_sdk import list_sessions
+    try:
+        sessions = await asyncio.to_thread(list_sessions, limit=20)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Failed to list sessions: {e}[/]")
+        return
+    if not sessions:
+        console.print("[dim]No saved sessions yet.[/]")
+        return
+    tui.render_sessions(console, sessions)
 
 
 async def _ctx_pct(agent: Agent) -> float | None:
@@ -330,6 +352,32 @@ def update() -> None:
     _run_update()
 
 
+@main.command(name="sessions")
+@click.option("--delete", "delete_id", default=None, help="Delete a session by ID.")
+@click.option("--limit", default=20, help="Max sessions to list.")
+def sessions_cmd(delete_id: str | None, limit: int) -> None:
+    """List, inspect, or delete saved Claude Code sessions."""
+    from claude_agent_sdk import delete_session, list_sessions
+
+    if delete_id:
+        try:
+            delete_session(delete_id)
+            console.print(f"[green]Deleted session {delete_id}.[/]")
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]Delete failed: {e}[/]")
+        return
+
+    try:
+        sessions = list_sessions(limit=limit)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[red]Failed to list sessions: {e}[/]")
+        sys.exit(1)
+    if not sessions:
+        console.print("[dim]No saved sessions yet.[/]")
+        return
+    tui.render_sessions(console, sessions)
+
+
 @main.command()
 def doctor() -> None:
     """Diagnose the install: Claude CLI present, logged in, config valid, etc."""
@@ -363,6 +411,19 @@ def doctor() -> None:
                 str(auth_dir) if auth_dir.exists() else "run `claude login`",
             )
         )
+
+        # Real connectivity test: actually ping Anthropic via the CLI.
+        try:
+            ping = subprocess.run(
+                ["claude", "-p", "respond with exactly: pong"],
+                capture_output=True, text=True, timeout=60,
+                env={**__import__("os").environ, "ANTHROPIC_API_KEY": ""},
+            )
+            ok = ping.returncode == 0 and "pong" in (ping.stdout or "").lower()
+            msg = (ping.stdout or ping.stderr or "(no output)").strip().splitlines()[0][:80]
+            checks.append(("Anthropic reachable (claude -p)", ok, msg))
+        except Exception as e:  # noqa: BLE001
+            checks.append(("Anthropic reachable (claude -p)", False, f"{type(e).__name__}: {e}"))
 
     try:
         cfg = load_config()

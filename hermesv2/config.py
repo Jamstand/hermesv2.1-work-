@@ -37,6 +37,12 @@ class AgentSettings:
     permission_mode: str = "default"        # default | acceptEdits | plan | bypassPermissions
     workspace_dir: str = "~/hermes-workspace"
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    # MCP servers: name → {type: stdio|sse|http, command/url, args, env}
+    mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Skills: "all" loads everything in ~/.claude/skills/, or a list of names
+    skills: list[str] | str = "all"
+    # Extra directories the agent's Read/Write/Bash tools can touch outside cwd
+    add_dirs: list[str] = field(default_factory=list)
 
 
 @dataclass

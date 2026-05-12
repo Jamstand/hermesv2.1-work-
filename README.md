@@ -60,17 +60,74 @@ Should show green checks for Claude CLI installed, runnable, auth state, config 
 ## Use
 
 ```sh
-hermesv2 chat                              # interactive REPL
-hermesv2 run "list this directory"         # one-shot
+hermesv2                                # interactive REPL (default)
+hermesv2 chat                           # explicit
+hermesv2 chat --session work            # named, resumable session
+hermesv2 run "list this directory"      # one-shot
 echo "summarize this" | cat README.md - | hermesv2 run
+hermesv2 sessions                       # list saved sessions
+hermesv2 sessions --delete <id>         # delete one
+hermesv2 update                         # git pull
+hermesv2 doctor                         # diagnose (now actually pings claude)
 
-hermesv2 slack    # needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
-hermesv2 discord  # needs DISCORD_BOT_TOKEN
+hermesv2 slack                          # needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
+hermesv2 discord                        # needs DISCORD_BOT_TOKEN
 ```
 
-In the chat REPL:
-- `/reset` — clear conversation history
-- `exit` or Ctrl-D — quit
+In the chat REPL, type `/help` for the full slash-command list:
+
+| Command | Effect |
+|---|---|
+| `/help` | show commands |
+| `/exit`, `/quit` | quit |
+| `/reset` | clear conversation (new internal session id) |
+| `/clear` | clear screen |
+| `/context` | current context-window usage |
+| `/stats` | turns + tokens + elapsed for this session |
+| `/sessions` | list saved Claude Code sessions |
+| `/tools` | list built-in tools |
+| `/model <name>` | switch model mid-session |
+| `/update` | git pull the install |
+
+## Sessions
+
+Claude Code persists sessions automatically. Resume across restarts with:
+
+```sh
+hermesv2 chat --session work-2026
+```
+
+The first time, this creates a session named `work-2026`. Next time you launch with the same name, it picks up where you left off. List all with `hermesv2 sessions`.
+
+## MCP servers
+
+To plug in Model Context Protocol servers (filesystem, GitHub, Slack, Linear, etc.), add them to `config.yaml`:
+
+```yaml
+agent:
+  mcp_servers:
+    filesystem:
+      type: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/josh/projects"]
+    github:
+      type: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PAT}
+```
+
+These run as subprocesses and expose their tools to the agent transparently.
+
+## Skills
+
+Claude Code skills (markdown files in `~/.claude/skills/`) load automatically. To load only specific ones:
+
+```yaml
+agent:
+  skills: [code-review, sql-explainer]
+```
 
 ## Configuration
 

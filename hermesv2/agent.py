@@ -91,9 +91,15 @@ class Agent:
     per-user history without spawning a new subprocess per user.
     """
 
-    def __init__(self, settings: AgentSettings, cwd: str | Path | None = None):
+    def __init__(
+        self,
+        settings: AgentSettings,
+        cwd: str | Path | None = None,
+        resume_session_id: str | None = None,
+    ):
         self.settings = settings
         self.cwd = Path(cwd).expanduser() if cwd else None
+        self.resume_session_id = resume_session_id
         self._client: ClaudeSDKClient | None = None
         self._reset_counter = 0
 
@@ -105,16 +111,27 @@ class Agent:
             }
         else:
             thinking = {"type": "disabled"}
-        return ClaudeAgentOptions(
+
+        kwargs: dict[str, Any] = dict(
             system_prompt=self.settings.system_prompt,
             allowed_tools=DEFAULT_TOOLS,
             permission_mode=self.settings.permission_mode,
             cwd=str(self.cwd) if self.cwd else None,
             model=self.settings.model,
             effort=self.settings.effort,
-            thinking=thinking,  # type: ignore[arg-type]
+            thinking=thinking,
             include_partial_messages=True,
         )
+        if self.resume_session_id:
+            kwargs["resume"] = self.resume_session_id
+        if self.settings.mcp_servers:
+            kwargs["mcp_servers"] = self.settings.mcp_servers
+        if self.settings.skills:
+            kwargs["skills"] = self.settings.skills
+        if self.settings.add_dirs:
+            kwargs["add_dirs"] = self.settings.add_dirs
+
+        return ClaudeAgentOptions(**kwargs)
 
     async def connect(self) -> None:
         if self.cwd:

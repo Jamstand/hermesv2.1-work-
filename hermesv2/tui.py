@@ -18,12 +18,32 @@ from hermesv2.agent import DEFAULT_TOOLS
 from hermesv2.config import AgentSettings
 
 BANNER = r"""
-██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗    ██╗   ██╗██████╗
-██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝    ██║   ██║╚════██╗
-███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗    ██║   ██║ █████╔╝
-██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║    ╚██╗ ██╔╝██╔═══╝
-██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║     ╚████╔╝ ███████╗
-╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═══╝  ╚══════╝
+██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗   ██╗   ██╗██████╗     ██╗
+██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝   ██║   ██║╚════██╗   ███║
+███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗   ██║   ██║ █████╔╝   ╚██║
+██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║   ╚██╗ ██╔╝██╔═══╝     ██║
+██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║██╗ ╚████╔╝ ███████╗██╗ ██║
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝╚═╝ ╚═╝
+                                                       W   O   R   K
+"""
+
+# Small caduceus (winged messenger staff) logo for the welcome panel — Hermes
+# is the messenger god, V2 inherits the wings. Kept compact so it fits on
+# narrow terminals.
+LOGO = r"""
+        ___
+   _.--'   '--._
+  /  __     __  \
+ |  /  \   /  \  |
+  \ ====== ====== /
+   \   /WORK\   /
+    \ |  V2  | /
+     \|______|/
+      |||||||
+      |||||||
+      |||||||
+     /=======\
+    '---------'
 """
 
 TOOL_GROUPS: dict[str, list[str]] = {
@@ -34,24 +54,36 @@ TOOL_GROUPS: dict[str, list[str]] = {
 }
 
 
-def render_startup(console: Console, settings: AgentSettings) -> None:
+def render_startup(
+    console: Console,
+    settings: AgentSettings,
+    session_name: str | None = None,
+) -> None:
     """Print the banner + welcome panel. Called once at the start of `chat`."""
     console.print(Text(BANNER, style="bold cyan"), highlight=False)
-    console.print(_welcome_panel(settings))
+    tagline = Text()
+    tagline.append("    Personal Work Agent  ", style="dim italic")
+    tagline.append("·", style="dim")
+    tagline.append("  Max-subscription billing  ", style="dim italic")
+    tagline.append("·", style="dim")
+    tagline.append(f"  v{__version__}", style="dim italic")
+    console.print(tagline)
+    console.print()
+    console.print(_welcome_panel(settings, session_name))
     console.print()
 
 
-def _welcome_panel(settings: AgentSettings) -> Panel:
-    lines: list[Text] = [Text()]
-
-    lines.append(Text("  Built-in tools", style="bold green"))
+def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
+    # Build the right-side info column.
+    info_lines: list[Text] = [Text()]
+    info_lines.append(Text("  Built-in tools", style="bold green"))
     for group, tools in TOOL_GROUPS.items():
         line = Text("    ")
         line.append(f"{group:<7}", style="dim")
         line.append("  ")
         line.append(", ".join(tools), style="white")
-        lines.append(line)
-    lines.append(Text())
+        info_lines.append(line)
+    info_lines.append(Text())
 
     config_table = [
         ("Model",      settings.model),
@@ -59,33 +91,51 @@ def _welcome_panel(settings: AgentSettings) -> Panel:
         ("Effort",     settings.effort),
         ("Thinking",   f"{settings.thinking} · {settings.thinking_display}"),
         ("Permission", settings.permission_mode),
+        ("Session",    session_name or "default (ephemeral)"),
     ]
+    if settings.mcp_servers:
+        config_table.append(("MCP servers", ", ".join(settings.mcp_servers.keys())))
+    if settings.skills and settings.skills != "all":
+        skills_str = settings.skills if isinstance(settings.skills, str) else ", ".join(settings.skills)
+        config_table.append(("Skills", skills_str))
     for key, val in config_table:
         line = Text("  ")
         line.append(f"{key:<12}", style="dim")
         line.append(str(val), style="cyan")
-        lines.append(line)
-    lines.append(Text())
+        info_lines.append(line)
+    info_lines.append(Text())
 
     footer = Text("  ")
-    footer.append("/reset", style="bold yellow")
-    footer.append(" clears history · ", style="dim")
+    footer.append("/help", style="bold yellow")
+    footer.append(" for commands · ", style="dim")
     footer.append("/exit", style="bold yellow")
     footer.append(" or Ctrl-D quits · ", style="dim")
     footer.append(f"{len(DEFAULT_TOOLS)} tools available", style="dim")
-    lines.append(footer)
-    lines.append(Text())
+    info_lines.append(footer)
+    info_lines.append(Text())
+
+    # Left-side logo column.
+    logo = Text(LOGO, style="magenta")
+
+    # Compose side-by-side via Columns.
+    from rich.columns import Columns
+    body = Columns(
+        [logo, Group(*info_lines)],
+        equal=False,
+        expand=False,
+        padding=(0, 2),
+    )
 
     title = Text()
-    title.append(" Hermes v2 ", style="bold cyan")
-    title.append(f"v{__version__} ", style="dim")
-    title.append("· ", style="dim")
+    title.append(" Hermesv2.1 ", style="bold cyan")
+    title.append("(work)", style="bold yellow")
+    title.append(" · ", style="dim")
     title.append(settings.model, style="green")
     title.append(" · ", style="dim")
     title.append("Max subscription ", style="bold magenta")
 
     return Panel(
-        Group(*lines),
+        body,
         title=title,
         title_align="left",
         border_style="cyan",
@@ -152,6 +202,7 @@ def render_status_bar(
     ctx_pct: float | None,
     turn_seconds: float,
     session_seconds: float,
+    session_id: str = "default",
 ) -> None:
     """Status line printed between turns, mimicking the upstream bottom bar."""
     if ctx_pct is None:
@@ -167,6 +218,8 @@ def render_status_bar(
     parts.append(" ⚕ ", style="bold magenta")
     parts.append(model, style="cyan")
     parts.append(" │ ", style="dim")
+    parts.append(f"⌖ {session_id}", style="bold blue")
+    parts.append(" │ ", style="dim")
     parts.append(ctx_str, style="green" if ctx_pct and ctx_pct < 70 else "yellow")
     parts.append(" │ ", style="dim")
     parts.append(bar, style="dim")
@@ -175,6 +228,34 @@ def render_status_bar(
     parts.append(" │ ⏲ ", style="dim")
     parts.append(f"{_fmt_seconds(turn_seconds)}", style="dim")
     console.print(parts)
+
+
+def render_sessions(console: Console, sessions: list) -> None:
+    """Print a table of saved Claude Code sessions."""
+    from datetime import datetime
+
+    from rich.table import Table
+
+    table = Table(border_style="dim", header_style="bold cyan")
+    table.add_column("Session ID", style="cyan", no_wrap=True)
+    table.add_column("Modified", style="dim")
+    table.add_column("Branch / cwd", style="dim")
+    table.add_column("Summary", style="white")
+
+    for s in sessions:
+        ts = getattr(s, "last_modified", 0) or 0
+        when = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d %H:%M") if ts else "?"
+        loc = getattr(s, "git_branch", None) or getattr(s, "cwd", "") or ""
+        summary = (
+            getattr(s, "custom_title", None)
+            or getattr(s, "summary", None)
+            or getattr(s, "first_prompt", None)
+            or "(empty)"
+        )
+        if len(summary) > 60:
+            summary = summary[:60] + "..."
+        table.add_row(s.session_id[:16] + "...", when, loc[:30], summary)
+    console.print(table)
 
 
 def _fmt_seconds(seconds: float) -> str:
@@ -188,13 +269,14 @@ def _fmt_seconds(seconds: float) -> str:
 SLASH_HELP = """[bold cyan]Slash commands[/]
   [yellow]/help[/]               show this message
   [yellow]/exit[/] or [yellow]/quit[/]      quit
-  [yellow]/reset[/]              clear conversation history
+  [yellow]/reset[/]              clear conversation history (start a fresh session id)
   [yellow]/clear[/]              clear the screen
   [yellow]/context[/]            show current context-window usage
   [yellow]/stats[/]              show this session's totals
+  [yellow]/sessions[/]           list saved sessions (resume via `hermesv2 --session NAME`)
   [yellow]/model <name>[/]       switch model mid-session (e.g. claude-sonnet-4-6)
-  [yellow]/tools[/]              list built-in tools
-  [yellow]/update[/]              git pull the latest hermesv2 from origin
+  [yellow]/tools[/]              list built-in tools (Read, Write, Bash, etc.)
+  [yellow]/update[/]             git pull the latest hermesv2 from origin
 """
 
 
