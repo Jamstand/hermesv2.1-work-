@@ -11,8 +11,9 @@ from pathlib import Path
 
 import click
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.completion import Completer, Completion, FuzzyCompleter
+from prompt_toolkit.formatted_text import HTML, FormattedText
+from prompt_toolkit.styles import Style
 from rich.console import Console
 
 from hermesv2 import tui
@@ -30,25 +31,52 @@ console = Console()
 
 
 # ---------------------------------------------------------------------------
-# Slash command autocomplete (prompt-toolkit)
+# Slash command autocomplete + theming (prompt-toolkit)
 # ---------------------------------------------------------------------------
 
 
+# Color palette is harmonized with the welcome panel: cyan border (#87d7ff),
+# magenta accents (#ff5fd7), navy menu background (#1c1c2e), indigo highlight
+# for the selected row (#5f5fff).
+DROPDOWN_STYLE = Style.from_dict({
+    # Menu rows
+    "completion-menu.completion":                     "bg:#1c1c2e #87d7ff",
+    "completion-menu.completion.current":             "bg:#5f5fff #ffffff bold",
+    "completion-menu.meta.completion":                "bg:#1c1c2e #888888",
+    "completion-menu.meta.completion.current":        "bg:#5f5fff #d0d0d0",
+    "completion-menu.multi-column-meta":              "bg:#1c1c2e #888888",
+    # Scrollbar
+    "scrollbar.background":                           "bg:#1c1c2e",
+    "scrollbar.button":                               "bg:#5f5fff",
+    # Inline classes used by FormattedText below
+    "slash":                                          "#ff5fd7",
+    "cmd-name":                                       "#87d7ff bold",
+})
+
+
 class SlashCommandCompleter(Completer):
-    """Dropdown that lists known slash commands once the user types `/`."""
+    """Yields the full slash-command set whenever the user is typing a `/`.
+
+    Yields everything (no prefix filter) on purpose — when wrapped in
+    FuzzyCompleter, that wrapper does the matching. When used bare, all
+    commands are listed and prompt-toolkit's default key bindings narrow
+    them as you type.
+    """
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if not text.startswith("/"):
             return
         for cmd, desc in tui.SLASH_COMMANDS:
-            if cmd.startswith(text):
-                yield Completion(
-                    cmd,
-                    start_position=-len(text),
-                    display=cmd,
-                    display_meta=desc,
-                )
+            yield Completion(
+                cmd,
+                start_position=-len(text),
+                display=FormattedText([
+                    ("class:slash",    "/"),
+                    ("class:cmd-name", cmd[1:]),
+                ]),
+                display_meta=desc,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +216,10 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
     user_history: list[str] = []
 
     prompt_session: PromptSession[str] = PromptSession(
-        completer=SlashCommandCompleter(),
+        completer=FuzzyCompleter(SlashCommandCompleter()),
         complete_while_typing=True,
+        complete_in_thread=True,
+        style=DROPDOWN_STYLE,
     )
 
     async with Agent(
@@ -205,7 +235,10 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
         while True:
             try:
                 line = await prompt_session.prompt_async(
-                    HTML("\n<ansiblue><b>you</b></ansiblue><ansicyan>›</ansicyan> ")
+                    HTML(
+                        "\n<ansicyan>╭─</ansicyan> <b><ansicyan>you</ansicyan></b>\n"
+                        "<ansicyan>╰─</ansicyan><ansimagenta>❯</ansimagenta> "
+                    )
                 )
             except (EOFError, KeyboardInterrupt):
                 console.print("\n[dim]bye.[/]")
