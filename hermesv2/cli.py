@@ -560,15 +560,8 @@ async def _handle_slash(
 
     # --- Theme switcher ---------------------------------------------------
     if cmd == "/theme":
-        if not arg:
-            current = themes.load_active_palette().name
-            console.print(f"\n  [hermes.section]Available themes[/]  [dim](active:[/] [hermes.session]{current}[/][dim])[/]")
-            for p in themes.list_themes():
-                marker = "  [hermes.session]← current[/]" if p.name == current else ""
-                console.print(f"    [hermes.info]{p.name:<18}[/]  [dim]{p.label}[/]{marker}")
-            console.print(
-                "\n  [dim]usage:[/] [hermes.info]/theme <name>[/]\n"
-            )
+        if not arg or arg == "list":
+            _print_theme_list()
             return None
         if arg not in themes.PALETTES:
             console.print(f"  [hermes.error]unknown theme:[/] [hermes.info]{arg}[/]")
@@ -579,13 +572,14 @@ async def _handle_slash(
         except Exception as e:  # noqa: BLE001
             console.print(f"  [hermes.error]failed to save theme:[/] {e}")
             return None
-        # Hot-swap Rich's theme so the welcome-panel renderer + agent
-        # replies pick up the new colors immediately.
+        # Hot-swap Rich's theme so the welcome panel + agent replies
+        # pick up the new colors immediately.
         new_palette = themes.get_palette(arg)
         console.push_theme(themes.build_theme(new_palette))
         console.print(
-            f"  [hermes.success]theme switched to[/] [hermes.session]{arg}[/]\n"
-            f"  [dim]Restart hermesv2 to also update the prompt + dropdown colors.[/]"
+            f"  [hermes.success]theme switched to[/] [hermes.session]{arg}[/]  "
+            f"{themes.render_theme_swatch(new_palette)}\n"
+            f"  [dim]Restart hermesv2 to also update the prompt + dropdown.[/]"
         )
         return None
 
@@ -820,22 +814,38 @@ def update() -> None:
     _run_update()
 
 
+def _print_theme_list() -> None:
+    """Pretty list of all themes with inline color swatches."""
+    current = themes.load_active_palette().name
+    console.print(
+        f"\n  [hermes.section]Available themes[/]  "
+        f"[dim](active:[/] [hermes.session]{current}[/][dim])[/]\n"
+    )
+    for p in themes.list_themes():
+        marker = "  [hermes.session]← current[/]" if p.name == current else ""
+        console.print(
+            f"    [hermes.info]{p.name:<18}[/]  "
+            f"{themes.render_theme_swatch(p)}  "
+            f"[dim]{p.label}[/]{marker}"
+        )
+    console.print(
+        "\n  [dim]switch with:[/] [hermes.info]hermesv2 theme <name>[/] "
+        "[dim]or[/] [hermes.info]/theme <name>[/] [dim]in chat[/]\n"
+    )
+
+
 @main.command(name="theme")
 @click.argument("name", required=False)
 def theme_cmd(name: str | None) -> None:
-    """List available color themes, or switch to one (e.g. `hermesv2 theme tokyo-night`)."""
-    if not name:
-        current = themes.load_active_palette().name
-        console.print(
-            f"\n  [hermes.section]Available themes[/]  "
-            f"[dim](active:[/] [hermes.session]{current}[/][dim])[/]"
-        )
-        for p in themes.list_themes():
-            marker = "  [hermes.session]← current[/]" if p.name == current else ""
-            console.print(
-                f"    [hermes.info]{p.name:<18}[/]  [dim]{p.label}[/]{marker}"
-            )
-        console.print("\n  [dim]switch with:[/] [hermes.info]hermesv2 theme <name>[/]\n")
+    """List available color themes (with previews) or switch to one.
+
+    Examples:
+        hermesv2 theme              # list all themes with swatches
+        hermesv2 theme list         # same — explicit verb
+        hermesv2 theme synthwave    # switch to synthwave
+    """
+    if not name or name == "list":
+        _print_theme_list()
         return
     if name not in themes.PALETTES:
         console.print(f"  [hermes.error]unknown theme:[/] [hermes.info]{name}[/]")
@@ -847,8 +857,9 @@ def theme_cmd(name: str | None) -> None:
         console.print(f"  [hermes.error]failed to save theme:[/] {e}")
         sys.exit(1)
     console.print(
-        f"  [hermes.success]theme set to[/] [hermes.session]{name}[/]\n"
-        f"  [dim]Restart hermesv2 to see it.[/]"
+        f"  [hermes.success]theme set to[/] [hermes.session]{name}[/]  "
+        f"{themes.render_theme_swatch(themes.get_palette(name))}\n"
+        f"  [dim]Restart hermesv2 to see it everywhere.[/]"
     )
 
 

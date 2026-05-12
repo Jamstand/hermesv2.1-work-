@@ -229,6 +229,24 @@ def build_dropdown_style_dict(p: Palette) -> dict[str, str]:
     }
 
 
+def render_theme_swatch(p: Palette) -> str:
+    """Return a Rich-markup color swatch showing the palette's six main slots.
+
+    Each ██ block is styled inline with one of the palette's hex codes so a
+    `console.print(swatch)` reveals what the theme looks like without having
+    to switch into it first.
+    """
+    blocks = [
+        ("██", p.primary),     # the banner / title accent
+        ("██", p.secondary),   # **bold** highlights, chevrons
+        ("██", p.warm),        # logo, italic
+        ("██", p.highlight),   # session ID, current marker
+        ("██", p.success),     # section headers, ok states
+        ("██", p.info),        # model name, links
+    ]
+    return " ".join(f"[{hex_}]{block}[/]" for block, hex_ in blocks)
+
+
 def prompt_html(p: Palette) -> str:
     """The HTML for the chat prompt line: ▎ you ❱"""
     return (
