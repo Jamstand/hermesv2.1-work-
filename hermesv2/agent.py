@@ -8,6 +8,7 @@ turns.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -95,7 +96,7 @@ class Agent:
         self.settings = settings
         self.tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self.server_tools = server_tools or []
-        self.client = client or anthropic.Anthropic()
+        self.client = client or _build_default_client()
         self.conversation: list[dict[str, Any]] = []
 
     def reset(self) -> None:
@@ -201,6 +202,22 @@ class Agent:
             return tool.handler(tool_input), False
         except Exception as e:  # noqa: BLE001 — surface any handler crash to the model
             return f"{type(e).__name__}: {e}", True
+
+
+def _build_default_client() -> anthropic.Anthropic:
+    """Build the default Anthropic client, honoring SSL_CERT_FILE if set.
+
+    Behind a TLS-intercepting proxy, the org's CA bundle lives in the system
+    cert store (e.g. /etc/ssl/certs/ca-certificates.crt) — certifi's default
+    bundle doesn't know about it. httpx doesn't auto-read SSL_CERT_FILE, so
+    we read it ourselves and pass it as `verify=`.
+    """
+    cert_file = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
+    if cert_file and os.path.isfile(cert_file):
+        return anthropic.Anthropic(
+            http_client=anthropic.DefaultHttpxClient(verify=cert_file)
+        )
+    return anthropic.Anthropic()
 
 
 def _usage_dict(usage: Any) -> dict[str, int]:
