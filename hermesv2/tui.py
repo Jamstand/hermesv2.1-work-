@@ -24,6 +24,23 @@ from hermesv2 import __version__
 from hermesv2.agent import DEFAULT_TOOLS
 from hermesv2.config import AgentSettings
 
+# Catppuccin Mocha palette — easy on the eyes, modern, distinguishes layers
+# without the high-contrast cyan/magenta vibration of the previous theme.
+COLOR_MAUVE     = "#cba6f7"  # primary accent (banner, status icon, prompt bar)
+COLOR_PINK      = "#f5c2e7"  # secondary accent (chevrons, "Max" chip, hermes label)
+COLOR_PEACH     = "#fab387"  # warm contrast (logo, errors → falls back to red)
+COLOR_YELLOW    = "#f9e2af"  # session ID, current marker
+COLOR_GREEN     = "#a6e3a1"  # success, counts, section headers
+COLOR_TEAL      = "#94e2d5"  # secondary cool accent (tool results)
+COLOR_SKY       = "#89dceb"  # cool fg for model/tool-call labels
+COLOR_LAVENDER  = "#b4befe"  # session marker in status bar
+COLOR_RED       = "#f38ba8"  # errors
+COLOR_TEXT      = "#cdd6f4"  # default body text
+COLOR_SUBTEXT   = "#a6adc8"  # dim text
+COLOR_OVERLAY   = "#6c7086"  # muted dim
+COLOR_BASE      = "#1e1e2e"  # background
+COLOR_MANTLE    = "#181825"  # darker background (dropdown bg)
+
 BANNER = r"""
 ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗   ██╗   ██╗██████╗     ██╗
 ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝   ██║   ██║╚════██╗   ███║
@@ -111,7 +128,7 @@ def render_startup(
     session_name: str | None = None,
 ) -> None:
     """Print the banner + welcome panel. Called once at the start of `chat`."""
-    console.print(Text(BANNER, style="bold cyan"), highlight=False)
+    console.print(Text(BANNER, style="bold #cba6f7"), highlight=False)
     tagline = Text()
     tagline.append("    Personal Work Agent  ", style="dim italic")
     tagline.append("·", style="dim")
@@ -129,28 +146,28 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
     info_lines: list[Text] = [Text()]
 
     # Available Tools section
-    info_lines.append(Text("  Available Tools", style="bold green"))
+    info_lines.append(Text("  Available Tools", style="bold #a6e3a1"))
     for group, tools in TOOL_GROUPS.items():
         line = Text("    ")
         line.append(f"{group:<8}", style="dim")
         line.append(": ", style="dim")
-        line.append(", ".join(tools), style="white")
+        line.append(", ".join(tools), style="#cdd6f4")
         info_lines.append(line)
     if settings.mcp_servers:
         line = Text("    ")
         line.append(f"{'mcp':<8}", style="dim")
         line.append(": ", style="dim")
-        line.append(", ".join(settings.mcp_servers.keys()), style="magenta")
+        line.append(", ".join(settings.mcp_servers.keys()), style="#f5c2e7")
         info_lines.append(line)
     info_lines.append(Text())
 
     # Available Skills section
     skills = discover_skills(limit=8)
     if skills:
-        info_lines.append(Text("  Available Skills", style="bold green"))
+        info_lines.append(Text("  Available Skills", style="bold #a6e3a1"))
         for name, desc in skills:
             line = Text("    ")
-            line.append(f"{name}", style="cyan")
+            line.append(f"{name}", style="#89dceb")
             if desc:
                 short = desc if len(desc) < 60 else desc[:60] + "..."
                 line.append(": ", style="dim")
@@ -169,13 +186,13 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
     for key, val in config_table:
         line = Text("  ")
         line.append(f"{key:<12}", style="dim")
-        line.append(str(val), style="cyan")
+        line.append(str(val), style="#89dceb")
         info_lines.append(line)
 
     # Session line — prominent, formatted like upstream hermes-agent
     session_line = Text("  ")
     session_line.append(f"{'Session':<12}", style="dim")
-    session_line.append(session_name or "(ephemeral)", style="bold yellow")
+    session_line.append(session_name or "(ephemeral)", style="bold #f9e2af")
     info_lines.append(session_line)
     info_lines.append(Text())
 
@@ -184,16 +201,16 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
         1 for _ in settings.mcp_servers
     )
     counts = Text("  ")
-    counts.append(f"{total_tools} tools", style="green")
+    counts.append(f"{total_tools} tools", style="#a6e3a1")
     counts.append(" · ", style="dim")
-    counts.append(f"{len(skills)} skills" if skills else "0 skills", style="green")
+    counts.append(f"{len(skills)} skills" if skills else "0 skills", style="#a6e3a1")
     counts.append(" · ", style="dim")
     counts.append("/help for commands · /exit quits", style="dim")
     info_lines.append(counts)
     info_lines.append(Text())
 
     # Left-side logo column.
-    logo = Text(LOGO, style="magenta")
+    logo = Text(LOGO, style="#fab387")
 
     # Compose side-by-side via Columns.
     from rich.columns import Columns
@@ -205,18 +222,18 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
     )
 
     title = Text()
-    title.append(" Hermesv2.1 ", style="bold cyan")
-    title.append("(work)", style="bold yellow")
+    title.append(" Hermesv2.1 ", style="bold #cba6f7")
+    title.append("(work)", style="bold #f9e2af")
     title.append(" · ", style="dim")
-    title.append(settings.model, style="green")
+    title.append(settings.model, style="#a6e3a1")
     title.append(" · ", style="dim")
-    title.append("Max subscription ", style="bold magenta")
+    title.append("Max subscription ", style="bold #f5c2e7")
 
     return Panel(
         body,
         title=title,
         title_align="left",
-        border_style="cyan",
+        border_style="#cba6f7",
         padding=(0, 1),
     )
 
@@ -252,13 +269,13 @@ class ThinkingSpinner:
         self._stopped = False
 
     def _label(self, verb: str) -> str:
-        return f"[bold magenta]{verb}...[/]"
+        return f"[bold #f5c2e7]{verb}...[/]"
 
     def start(self) -> None:
         if self._status is not None:
             return
         verb = next(self._verbs)
-        self._status = self._console.status(self._label(verb), spinner="dots", spinner_style="magenta")
+        self._status = self._console.status(self._label(verb), spinner="dots", spinner_style="#cba6f7")
         self._status.__enter__()
         self._task = asyncio.create_task(self._rotate())
 
@@ -287,7 +304,7 @@ class ThinkingSpinner:
 
 def prompt_label() -> str:
     # Used by the non-prompt-toolkit path (legacy). New chat uses HTML prompt.
-    return "\n[bold cyan]▎[/] [bold cyan]you[/] [bold magenta]❱[/] "
+    return "\n[bold cyan]▎[/] [bold cyan]you[/] [bold #f5c2e7]❱[/] "
 
 
 def render_text_delta(console: Console, text: str) -> None:
@@ -355,16 +372,16 @@ async def pick_model_dialog(console: Console, current_model: str) -> str | None:
 
     console.print()
     console.print(
-        f"  [bold magenta]▎[/] [bold cyan]Model Picker[/] "
-        f"[dim]· currently on[/] [magenta]{current_model}[/]"
+        f"  [bold #f5c2e7]▎[/] [bold cyan]Model Picker[/] "
+        f"[dim]· currently on[/] [#f5c2e7]{current_model}[/]"
     )
     console.print()
     width = max(len(mid) for mid, _ in KNOWN_MODELS) + 1
     for i, (model_id, label) in enumerate(KNOWN_MODELS, 1):
-        marker = " [bold yellow]← current[/]" if model_id == current_model else ""
+        marker = " [bold #f9e2af]← current[/]" if model_id == current_model else ""
         console.print(
-            f"    [bold yellow]{i}.[/] "
-            f"[cyan]{model_id:<{width}}[/] "
+            f"    [bold #f9e2af]{i}.[/] "
+            f"[#89dceb]{model_id:<{width}}[/] "
             f"[dim]· {label}[/]{marker}"
         )
     console.print()
@@ -373,7 +390,7 @@ async def pick_model_dialog(console: Console, current_model: str) -> str | None:
     n_models = len(KNOWN_MODELS)
     try:
         raw = await ps.prompt_async(
-            HTML(f"  <ansicyan>pick a number (1-{n_models}), or Enter alone to cancel:</ansicyan> ")
+            HTML(f'  <style fg="#cba6f7">pick a number (1-{n_models}), or Enter alone to cancel:</style> ')
         )
     except (EOFError, KeyboardInterrupt):
         console.print()
@@ -388,7 +405,7 @@ async def pick_model_dialog(console: Console, current_model: str) -> str | None:
             return KNOWN_MODELS[idx][0]
     except ValueError:
         pass
-    console.print("  [red]invalid choice[/]")
+    console.print("  [#f38ba8]invalid choice[/]")
     return None
 
 
@@ -407,7 +424,7 @@ def render_assistant_markdown(console: Console, text: str) -> None:
 
 def assistant_label(console: Console) -> None:
     # Full line, so the following markdown block renders cleanly below.
-    console.print("[bold magenta]▎ hermes ❰[/]")
+    console.print("[bold #f5c2e7]▎ hermes ❰[/]")
 
 
 def render_thinking_delta(console: Console, text: str) -> None:
@@ -418,11 +435,11 @@ def render_tool_call(console: Console, name: str, tool_input: dict) -> None:
     preview = str(tool_input)
     if len(preview) > 200:
         preview = preview[:200] + "..."
-    console.print(f"\n  [cyan]⚙ {name}[/] [dim]{preview}[/]")
+    console.print(f"\n  [#89dceb]⚙ {name}[/] [dim]{preview}[/]")
 
 
 def render_tool_result(console: Console, name: str, output: str, is_error: bool) -> None:
-    color = "red" if is_error else "green"
+    color = "#f38ba8" if is_error else "#a6e3a1"
     preview = output if len(output) < 400 else output[:400] + "..."
     console.print(f"  [{color}]↳ {name}[/] [dim]{preview}[/]")
 
@@ -434,7 +451,7 @@ def render_turn_footer(
     usage: dict,
 ) -> None:
     line = Text()
-    line.append("  ⚕ ", style="bold magenta")
+    line.append("  ⚕ ", style="bold #f5c2e7")
     line.append(f"stop={stop_reason}", style="dim")
     if usage:
         input_tokens = usage.get("input_tokens") or 0
@@ -446,7 +463,7 @@ def render_turn_footer(
     if cost_usd:
         line.append(f"~${cost_usd:.4f} equiv", style="dim")
         line.append(" · ", style="dim")
-    line.append("Max subscription", style="magenta")
+    line.append("Max subscription", style="#f5c2e7")
     console.print()
     console.print(line)
 
@@ -470,12 +487,12 @@ def render_status_bar(
         bar = f"[{bar_chars}] {ctx_pct:.0f}%"
 
     parts = Text()
-    parts.append(" ⚕ ", style="bold magenta")
-    parts.append(model, style="cyan")
+    parts.append(" ⚕ ", style="bold #f5c2e7")
+    parts.append(model, style="#89dceb")
     parts.append(" │ ", style="dim")
-    parts.append(f"⌖ {session_id}", style="bold blue")
+    parts.append(f"⌖ {session_id}", style="bold #b4befe")
     parts.append(" │ ", style="dim")
-    parts.append(ctx_str, style="green" if ctx_pct and ctx_pct < 70 else "yellow")
+    parts.append(ctx_str, style="#a6e3a1" if ctx_pct and ctx_pct < 70 else "yellow")
     parts.append(" │ ", style="dim")
     parts.append(bar, style="dim")
     parts.append(" │ ", style="dim")
@@ -491,11 +508,11 @@ def render_sessions(console: Console, sessions: list) -> None:
 
     from rich.table import Table
 
-    table = Table(border_style="dim", header_style="bold cyan")
-    table.add_column("Session ID", style="cyan", no_wrap=True)
+    table = Table(border_style="dim", header_style="bold #cba6f7")
+    table.add_column("Session ID", style="#89dceb", no_wrap=True)
     table.add_column("Modified", style="dim")
     table.add_column("Branch / cwd", style="dim")
-    table.add_column("Summary", style="white")
+    table.add_column("Summary", style="#cdd6f4")
 
     for s in sessions:
         ts = getattr(s, "last_modified", 0) or 0
@@ -566,16 +583,16 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
 def render_help(console: Console) -> None:
     console.print("\n[bold cyan]Slash commands[/]")
     for cmd, desc in SLASH_COMMANDS:
-        console.print(f"  [yellow]{cmd:<12}[/]  [dim]{desc}[/]")
+        console.print(f"  [#f9e2af]{cmd:<12}[/]  [dim]{desc}[/]")
     console.print()
 
 
 def render_tools(console: Console) -> None:
-    console.print("\n[bold green]Built-in tools[/]")
+    console.print("\n[bold #a6e3a1]Built-in tools[/]")
     for group, tools in TOOL_GROUPS.items():
         line = Text("  ")
         line.append(f"{group:<8}", style="dim")
-        line.append(", ".join(tools), style="white")
+        line.append(", ".join(tools), style="#cdd6f4")
         console.print(line)
     console.print()
 
@@ -585,8 +602,8 @@ def render_stats(
     total_cost: float, session_seconds: float,
 ) -> None:
     line = Text()
-    line.append("\n  session  ", style="bold cyan")
-    line.append(f"{turns} turn{'s' if turns != 1 else ''}", style="green")
+    line.append("\n  session  ", style="bold #cba6f7")
+    line.append(f"{turns} turn{'s' if turns != 1 else ''}", style="#a6e3a1")
     line.append(" · ", style="dim")
     line.append(f"in {total_input} / out {total_output} tokens", style="dim")
     line.append(" · ", style="dim")
@@ -595,6 +612,6 @@ def render_stats(
         line.append(" · ", style="dim")
     line.append(f"{_fmt_seconds(session_seconds)} elapsed", style="dim")
     line.append(" · ", style="dim")
-    line.append("billed to Max subscription", style="magenta")
+    line.append("billed to Max subscription", style="#f5c2e7")
     console.print(line)
     console.print()

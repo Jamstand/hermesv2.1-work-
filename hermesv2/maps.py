@@ -24,7 +24,8 @@ import httpx
 
 USER_AGENT = "hermesv2/0.4 (+https://github.com/jamstand/hermesv2.1-work-)"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+PHOTON_URL    = "https://photon.komoot.io/api/"
+TILE_URL      = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 
 
 @dataclass
@@ -35,8 +36,16 @@ class GeocodeResult:
     bbox: tuple[float, float, float, float] | None = None  # south, north, west, east
 
 
-def geocode(query: str, timeout: float = 12.0) -> GeocodeResult | None:
-    """Return the first Nominatim match for `query`, or None on failure."""
+@dataclass
+class GeocodeAttempt:
+    """Outcome of one provider's geocode attempt."""
+    provider: str
+    result: GeocodeResult | None = None
+    reason: str = "ok"     # ok | no_result | timeout | http_error | network_error
+    detail: str = ""
+
+
+def _geocode_nominatim(query: str, timeout: float = 12.0) -> GeocodeAttempt:
     try:
         r = httpx.get(
             NOMINATIM_URL,
@@ -44,16 +53,19 @@ def geocode(query: str, timeout: float = 12.0) -> GeocodeResult | None:
             headers={"User-Agent": USER_AGENT},
             timeout=timeout,
         )
-    except httpx.RequestError:
-        return None
+    except httpx.TimeoutException as e:
+        return GeocodeAttempt("nominatim", reason="timeout", detail=str(e))
+    except httpx.RequestError as e:
+        return GeocodeAttempt("nominatim", reason="network_error", detail=str(e))
     if r.status_code != 200:
-        return None
+        return GeocodeAttempt("nominatim", reason="http_error", detail=f"HTTP {r.status_code}")
     try:
         data = r.json()
-    except ValueError:
-        return None
+    except ValueError as e:
+        return GeocodeAttempt("nominatim", reason="http_error", detail=f"bad JSON: {e}")
     if not data:
-        return None
+        return GeocodeAttempt("nominatim", reason="no_result")
+
     item = data[0]
     bbox: tuple[float, float, float, float] | None = None
     if isinstance(item.get("boundingbox"), list) and len(item["boundingbox"]) == 4:
@@ -62,12 +74,69 @@ def geocode(query: str, timeout: float = 12.0) -> GeocodeResult | None:
             bbox = (s, n, w, e)
         except (TypeError, ValueError):
             pass
-    return GeocodeResult(
-        display_name=item.get("display_name", query),
-        lat=float(item["lat"]),
-        lon=float(item["lon"]),
-        bbox=bbox,
+    return GeocodeAttempt(
+        "nominatim",
+        result=GeocodeResult(
+            display_name=item.get("display_name", query),
+            lat=float(item["lat"]),
+            lon=float(item["lon"]),
+            bbox=bbox,
+        ),
     )
+
+
+def _geocode_photon(query: str, timeout: float = 12.0) -> GeocodeAttempt:
+    try:
+        r = httpx.get(
+            PHOTON_URL,
+            params={"q": query, "limit": 1},
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+        )
+    except httpx.TimeoutException as e:
+        return GeocodeAttempt("photon", reason="timeout", detail=str(e))
+    except httpx.RequestError as e:
+        return GeocodeAttempt("photon", reason="network_error", detail=str(e))
+    if r.status_code != 200:
+        return GeocodeAttempt("photon", reason="http_error", detail=f"HTTP {r.status_code}")
+    try:
+        data = r.json()
+    except ValueError as e:
+        return GeocodeAttempt("photon", reason="http_error", detail=f"bad JSON: {e}")
+    feats = data.get("features") or []
+    if not feats:
+        return GeocodeAttempt("photon", reason="no_result")
+    feat = feats[0]
+    coords = (feat.get("geometry") or {}).get("coordinates")  # [lon, lat]
+    if not coords or len(coords) < 2:
+        return GeocodeAttempt("photon", reason="no_result")
+    props = feat.get("properties") or {}
+    parts = [props.get("name"), props.get("street"), props.get("city"),
+             props.get("state"), props.get("country")]
+    display_name = ", ".join(p for p in parts if p) or query
+    return GeocodeAttempt(
+        "photon",
+        result=GeocodeResult(
+            display_name=display_name,
+            lat=float(coords[1]),
+            lon=float(coords[0]),
+        ),
+    )
+
+
+def geocode(query: str) -> tuple[GeocodeResult | None, list[GeocodeAttempt]]:
+    """Try Nominatim, then Photon. Returns (result_or_None, list_of_attempts).
+
+    Callers can inspect the attempts list to surface a useful error
+    (e.g. "no_result everywhere" vs "network_error" → likely proxy block).
+    """
+    attempts: list[GeocodeAttempt] = []
+    for fn in (_geocode_nominatim, _geocode_photon):
+        att = fn(query)
+        attempts.append(att)
+        if att.result is not None:
+            return att.result, attempts
+    return None, attempts
 
 
 def latlon_to_tile(lat: float, lon: float, zoom: int) -> tuple[int, int]:
@@ -146,14 +215,28 @@ def render_map(query: str, zoom: int = 14, cols: int = 60, rows: int = 18) -> di
     """All-in-one: geocode → tile fetch → braille render.
 
     Returns a dict with keys: place, lat, lon, braille, error. Any may be None.
+    `error` is a single human-readable line when something went wrong.
     """
     result: dict[str, Any] = {
         "place": None, "lat": None, "lon": None, "braille": None, "error": None,
     }
-    geo = geocode(query)
+    geo, attempts = geocode(query)
     if geo is None:
-        result["error"] = "geocoding failed (no result, or network blocked)"
+        # Pick the most informative attempt to surface.
+        reasons = [a.reason for a in attempts]
+        if all(r == "no_result" for r in reasons):
+            result["error"] = f"no place found matching '{query}'"
+        elif any(r in ("network_error", "timeout") for r in reasons):
+            providers = ", ".join(a.provider for a in attempts)
+            result["error"] = (
+                f"geocoding blocked by your network ({providers} unreachable). "
+                "Browser + agent lookup below still work."
+            )
+        else:
+            details = "; ".join(f"{a.provider}: {a.reason}" for a in attempts)
+            result["error"] = f"geocoding failed ({details})"
         return result
+
     result["place"] = geo.display_name
     result["lat"] = geo.lat
     result["lon"] = geo.lon
@@ -161,7 +244,7 @@ def render_map(query: str, zoom: int = 14, cols: int = 60, rows: int = 18) -> di
     tx, ty = latlon_to_tile(geo.lat, geo.lon, zoom)
     png = fetch_tile(tx, ty, zoom)
     if png is None:
-        result["error"] = "map tile fetch failed"
+        result["error"] = "map tile fetch failed (network or tile.openstreetmap.org blocked)"
         return result
 
     braille = png_to_braille(png, cols=cols, rows=rows)
@@ -171,3 +254,12 @@ def render_map(query: str, zoom: int = 14, cols: int = 60, rows: int = 18) -> di
 
     result["braille"] = braille
     return result
+
+
+def can_reach(url: str, timeout: float = 5.0) -> bool:
+    """Cheap network probe used by `hermesv2 doctor`."""
+    try:
+        r = httpx.head(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, follow_redirects=True)
+    except httpx.RequestError:
+        return False
+    return r.status_code < 500

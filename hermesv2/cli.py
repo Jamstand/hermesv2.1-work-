@@ -18,6 +18,7 @@ from prompt_toolkit.formatted_text import HTML, FormattedText
 from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.text import Text
+from rich.theme import Theme
 
 from hermesv2 import tui
 from hermesv2.agent import (
@@ -30,7 +31,26 @@ from hermesv2.agent import (
 )
 from hermesv2.config import Config, load_config
 
-console = Console()
+# Catppuccin Mocha overrides for Rich's Markdown renderer. These make
+# **bold** terms in agent responses pop in pink, headers in mauve, and
+# inline `code` in green-on-dark — same palette as the rest of the TUI.
+MARKDOWN_THEME = Theme({
+    "markdown.h1":           "bold #cba6f7",
+    "markdown.h2":           "bold #cba6f7",
+    "markdown.h3":           "bold #b4befe",
+    "markdown.h4":           "bold #b4befe",
+    "markdown.strong":       "bold #f5c2e7",
+    "markdown.emph":         "italic #fab387",
+    "markdown.code":         "bold #a6e3a1 on #181825",
+    "markdown.link":         "underline #89dceb",
+    "markdown.link_url":     "dim #89dceb",
+    "markdown.item.bullet":  "bold #94e2d5",
+    "markdown.item.number":  "bold #94e2d5",
+    "markdown.block_quote":  "italic #a6adc8",
+    "markdown.hr":           "#cba6f7",
+})
+
+console = Console(theme=MARKDOWN_THEME)
 
 
 # ---------------------------------------------------------------------------
@@ -42,18 +62,18 @@ console = Console()
 # magenta accents (#ff5fd7), navy menu background (#1c1c2e), indigo highlight
 # for the selected row (#5f5fff).
 DROPDOWN_STYLE = Style.from_dict({
-    # Menu rows
-    "completion-menu.completion":                     "bg:#1c1c2e #87d7ff",
-    "completion-menu.completion.current":             "bg:#5f5fff #ffffff bold",
-    "completion-menu.meta.completion":                "bg:#1c1c2e #888888",
-    "completion-menu.meta.completion.current":        "bg:#5f5fff #d0d0d0",
-    "completion-menu.multi-column-meta":              "bg:#1c1c2e #888888",
+    # Menu rows — Catppuccin Mocha palette
+    "completion-menu.completion":                     "bg:#181825 #89dceb",
+    "completion-menu.completion.current":             "bg:#cba6f7 #1e1e2e bold",
+    "completion-menu.meta.completion":                "bg:#181825 #a6adc8",
+    "completion-menu.meta.completion.current":        "bg:#cba6f7 #313244",
+    "completion-menu.multi-column-meta":              "bg:#181825 #a6adc8",
     # Scrollbar
-    "scrollbar.background":                           "bg:#1c1c2e",
-    "scrollbar.button":                               "bg:#5f5fff",
-    # Inline classes used by FormattedText below
-    "slash":                                          "#ff5fd7",
-    "cmd-name":                                       "#87d7ff bold",
+    "scrollbar.background":                           "bg:#181825",
+    "scrollbar.button":                               "bg:#cba6f7",
+    # Inline classes used by FormattedText
+    "slash":                                          "#f5c2e7",
+    "cmd-name":                                       "#89dceb bold",
 })
 
 
@@ -99,7 +119,7 @@ def _render_event_plain(event: object) -> None:
         preview = str(event.input)
         if len(preview) > 200:
             preview = preview[:200] + "..."
-        console.print(f"\n[cyan]→ {event.name}[/] [dim]{preview}[/]")
+        console.print(f"\n[#89dceb]→ {event.name}[/] [dim]{preview}[/]")
     elif isinstance(event, ToolResult):
         color = "red" if event.is_error else "green"
         preview = event.output if len(event.output) < 400 else event.output[:400] + "..."
@@ -189,7 +209,7 @@ def run(ctx: click.Context, prompt: tuple[str, ...]) -> None:
     elif not sys.stdin.isatty():
         message = sys.stdin.read().strip()
     else:
-        console.print("[red]No prompt given. Pass one as args or pipe via stdin.[/]")
+        console.print("[#f38ba8]No prompt given. Pass one as args or pipe via stdin.[/]")
         sys.exit(2)
 
     cfg = load_config(ctx.obj.get("config_path"))
@@ -249,9 +269,9 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
                 console.print()
                 line = await prompt_session.prompt_async(
                     HTML(
-                        "<b><ansicyan>▎</ansicyan></b> "
-                        "<b><ansicyan>you</ansicyan></b> "
-                        "<b><ansimagenta>❱</ansimagenta></b> "
+                        '<b><style fg="#cba6f7">▎</style></b> '
+                        '<b><style fg="#cba6f7">you</style></b> '
+                        '<b><style fg="#f5c2e7">❱</style></b> '
                     )
                 )
             except (EOFError, KeyboardInterrupt):
@@ -383,20 +403,20 @@ async def _handle_slash(
         return "redraw"
     if cmd == "/title":
         if not arg:
-            console.print("  [yellow]usage:[/] /title <name>")
+            console.print("  [#f9e2af]usage:[/] /title <name>")
             return None
         try:
             from claude_agent_sdk import rename_session
             rename_session(session_id, arg)
-            console.print(f"  [green]session renamed to[/] [cyan]{arg}[/]")
+            console.print(f"  [#a6e3a1]session renamed to[/] [#89dceb]{arg}[/]")
         except Exception as e:  # noqa: BLE001
-            console.print(f"[red]rename failed: {e}[/]")
+            console.print(f"[#f38ba8]rename failed: {e}[/]")
         return None
     if cmd == "/history":
         if not user_history:
             console.print("[dim]no user prompts yet in this session.[/]")
             return None
-        console.print("\n[bold cyan]Your prompts this session[/]")
+        console.print("\n[bold #cba6f7]Your prompts this session[/]")
         for i, prompt in enumerate(user_history[-20:], 1):
             short = prompt if len(prompt) < 80 else prompt[:80] + "..."
             console.print(f"  [dim]{i:>2}.[/] {short}")
@@ -408,7 +428,7 @@ async def _handle_slash(
         return await _set_perm(agent, PERMISSION_ALIASES[cmd])
     if cmd == "/permission":
         if not arg:
-            console.print("  [yellow]usage:[/] /permission <default|acceptEdits|plan|bypassPermissions>")
+            console.print("  [#f9e2af]usage:[/] /permission <default|acceptEdits|plan|bypassPermissions>")
             return None
         return await _set_perm(agent, arg)
 
@@ -422,35 +442,35 @@ async def _handle_slash(
     # --- Image / screenshot ------------------------------------------------
     if cmd == "/img":
         if not arg:
-            console.print("  [yellow]usage:[/] /img <path> [question]")
+            console.print("  [#f9e2af]usage:[/] /img <path> [question]")
             return None
         path_part, _, question = arg.partition(" ")
         path = Path(path_part).expanduser()
         if not path.is_file():
-            console.print(f"[red]not a file: {path}[/]")
+            console.print(f"[#f38ba8]not a file: {path}[/]")
             return None
         question = question.strip() or "Describe what's in this image in detail."
         full_prompt = f"Read the image at `{path}` and answer: {question}"
-        console.print(f"  [dim]attaching[/] [cyan]{path}[/]")
+        console.print(f"  [dim]attaching[/] [#89dceb]{path}[/]")
         return ("retry", full_prompt)
 
     if cmd == "/screenshot":
         latest = tui.find_recent_screenshot()
         if latest is None:
             console.print(
-                "[red]No recent screenshot found.[/] [dim]Looked under "
+                "[#f38ba8]No recent screenshot found.[/] [dim]Looked under "
                 "/mnt/c/Users/*/Pictures/Screenshots and ~/Pictures.[/]"
             )
             return None
         question = arg.strip() or "Describe what's in this screenshot in detail."
         full_prompt = f"Read the image at `{latest}` and answer: {question}"
-        console.print(f"  [dim]using[/] [cyan]{latest.name}[/] [dim]from {latest.parent}[/]")
+        console.print(f"  [dim]using[/] [#89dceb]{latest.name}[/] [dim]from {latest.parent}[/]")
         return ("retry", full_prompt)
 
     # --- Maps (geocode + inline braille map + browser open + agent ask) ----
     if cmd == "/maps":
         if not arg:
-            console.print("  [yellow]usage:[/] /maps <place or query>")
+            console.print("  [#f9e2af]usage:[/] /maps <place or query>")
             return None
         import urllib.parse
 
@@ -459,7 +479,7 @@ async def _handle_slash(
         encoded = urllib.parse.quote_plus(arg)
         url = f"https://www.google.com/maps/search/?api=1&query={encoded}"
 
-        console.print(f"  [dim]searching maps for[/] [cyan]{arg}[/]...")
+        console.print(f"  [dim]searching maps for[/] [#89dceb]{arg}[/]...")
         # Size the braille map to the terminal width, with a sensible cap.
         term_w = max(40, min(console.size.width - 6, 90))
         result = mapsmod.render_map(arg, cols=term_w, rows=18)
@@ -467,38 +487,38 @@ async def _handle_slash(
         if result["place"]:
             title = Text()
             title.append(" ", style="dim")
-            title.append(result["place"][:80], style="bold cyan")
+            title.append(result["place"][:80], style="bold #cba6f7")
             if result["lat"] is not None and result["lon"] is not None:
                 title.append(
                     f"  · {result['lat']:.4f}, {result['lon']:.4f}",
                     style="dim",
                 )
         else:
-            title = Text(f" {arg} ", style="bold cyan")
+            title = Text(f" {arg} ", style="bold #cba6f7")
 
         if result["braille"]:
             from rich.panel import Panel as RPanel
             panel = RPanel(
-                Text(result["braille"], style="bold cyan"),
+                Text(result["braille"], style="bold #cba6f7"),
                 title=title,
-                border_style="cyan",
+                border_style="#cba6f7",
                 padding=(0, 1),
             )
             console.print(panel)
         else:
-            console.print(f"  [cyan]{result.get('place') or arg}[/]")
+            console.print(f"  [#89dceb]{result.get('place') or arg}[/]")
             if result.get("lat") is not None:
                 console.print(
-                    f"  [dim]coords:[/] [cyan]{result['lat']:.4f}, {result['lon']:.4f}[/]"
+                    f"  [dim]coords:[/] [#89dceb]{result['lat']:.4f}, {result['lon']:.4f}[/]"
                 )
             if result.get("error"):
-                console.print(f"  [yellow]map render:[/] [dim]{result['error']}[/]")
+                console.print(f"  [#f9e2af]map render:[/] [dim]{result['error']}[/]")
 
         opened = _open_in_browser(url)
         if opened:
-            console.print(f"  [green]opened in browser:[/] [cyan]{url}[/]")
+            console.print(f"  [#a6e3a1]opened in browser:[/] [#89dceb]{url}[/]")
         else:
-            console.print(f"  [dim]copy and open in browser:[/] [cyan]{url}[/]")
+            console.print(f"  [dim]copy and open in browser:[/] [#89dceb]{url}[/]")
 
         full_prompt = (
             f"Look up '{arg}' on Google Maps and tell me the address, hours, rating, "
@@ -511,11 +531,11 @@ async def _handle_slash(
     if cmd == "/plugin":
         if not arg:
             console.print(
-                "  [yellow]usage:[/] /plugin <install|list|uninstall|update|enable|disable|marketplace> [args]\n"
+                "  [#f9e2af]usage:[/] /plugin <install|list|uninstall|update|enable|disable|marketplace> [args]\n"
                 "  [dim]examples:[/]\n"
-                "    [cyan]/plugin install github@claude-plugins-official[/]\n"
-                "    [cyan]/plugin marketplace add anthropics/claude-plugins[/]\n"
-                "    [cyan]/plugin list[/]"
+                "    [#89dceb]/plugin install github@claude-plugins-official[/]\n"
+                "    [#89dceb]/plugin marketplace add anthropics/claude-plugins[/]\n"
+                "    [#89dceb]/plugin list[/]"
             )
             return None
         _shell_claude_plugin(arg.split())
@@ -523,45 +543,45 @@ async def _handle_slash(
 
     # --- Workspace ---------------------------------------------------------
     if cmd == "/cwd":
-        console.print(f"  [dim]workspace[/]   [cyan]{cfg.agent.workspace_dir}[/]")
+        console.print(f"  [dim]workspace[/]   [#89dceb]{cfg.agent.workspace_dir}[/]")
         if cfg.agent.add_dirs:
             for extra in cfg.agent.add_dirs:
-                console.print(f"  [dim]extra     [/]   [cyan]{extra}[/]")
+                console.print(f"  [dim]extra     [/]   [#89dceb]{extra}[/]")
         return None
     if cmd == "/cd":
         if not arg:
-            console.print("  [yellow]usage:[/] /cd <path>")
+            console.print("  [#f9e2af]usage:[/] /cd <path>")
             return None
         new_path = str(Path(arg).expanduser())
         if new_path not in cfg.agent.add_dirs:
             cfg.agent.add_dirs.append(new_path)
         console.print(
-            f"  [green]added[/] [cyan]{new_path}[/] [dim]to allowed dirs.[/] "
-            "[yellow]Use /new to start a fresh session and let Claude see it.[/]"
+            f"  [#a6e3a1]added[/] [#89dceb]{new_path}[/] [dim]to allowed dirs.[/] "
+            "[#f9e2af]Use /new to start a fresh session and let Claude see it.[/]"
         )
         return None
 
     # --- Sysprompt ---------------------------------------------------------
     if cmd == "/sysprompt":
-        console.print(f"\n[bold cyan]System prompt:[/]\n[dim]{cfg.agent.system_prompt}[/]\n")
+        console.print(f"\n[bold #cba6f7]System prompt:[/]\n[dim]{cfg.agent.system_prompt}[/]\n")
         return None
 
     # --- Branch / fork -----------------------------------------------------
     if cmd in ("/branch", "/fork"):
         if not arg:
-            console.print(f"  [yellow]usage:[/] {cmd} <new-name>")
+            console.print(f"  [#f9e2af]usage:[/] {cmd} <new-name>")
             return None
         try:
             from claude_agent_sdk import fork_session
             result = fork_session(session_id, title=arg)
             new_id = getattr(result, "session_id", arg)
             console.print(
-                f"  [green]forked[/] from [dim]{session_id[:16]}...[/] "
-                f"to [cyan]{new_id}[/]"
+                f"  [#a6e3a1]forked[/] from [dim]{session_id[:16]}...[/] "
+                f"to [#89dceb]{new_id}[/]"
             )
             return ("session", new_id)
         except Exception as e:  # noqa: BLE001
-            console.print(f"[red]fork failed: {e}[/]")
+            console.print(f"[#f38ba8]fork failed: {e}[/]")
             return None
 
     # --- Compress (best-effort) -------------------------------------------
@@ -596,18 +616,18 @@ async def _handle_slash(
                 console.print("  [dim](no change)[/]")
                 return None
             if chosen == current_model:
-                console.print(f"  [dim]already on[/] [cyan]{chosen}[/]")
+                console.print(f"  [dim]already on[/] [#89dceb]{chosen}[/]")
                 return None
             arg = chosen
         if agent._client is None:
-            console.print("[red]Agent not connected.[/]")
+            console.print("[#f38ba8]Agent not connected.[/]")
             return None
         try:
             await agent._client.set_model(arg)
-            console.print(f"  [green]switched model to[/] [cyan]{arg}[/]")
+            console.print(f"  [#a6e3a1]switched model to[/] [#89dceb]{arg}[/]")
             return ("model", arg)
         except Exception as e:  # noqa: BLE001
-            console.print(f"[red]Failed to switch model: {e}[/]")
+            console.print(f"[#f38ba8]Failed to switch model: {e}[/]")
             return None
     if cmd == "/update":
         await _run_update_async()
@@ -616,7 +636,7 @@ async def _handle_slash(
         await _list_sessions_async()
         return None
 
-    console.print(f"[red]Unknown command: {cmd}. Type /help for a list.[/]")
+    console.print(f"[#f38ba8]Unknown command: {cmd}. Type /help for a list.[/]")
     return None
 
 
@@ -625,7 +645,7 @@ async def _list_sessions_async() -> None:
     try:
         sessions = await asyncio.to_thread(list_sessions, limit=20)
     except Exception as e:  # noqa: BLE001
-        console.print(f"[red]Failed to list sessions: {e}[/]")
+        console.print(f"[#f38ba8]Failed to list sessions: {e}[/]")
         return
     if not sessions:
         console.print("[dim]No saved sessions yet.[/]")
@@ -640,17 +660,17 @@ async def _set_perm(agent: Agent, mode: str) -> str | None:
     """Switch the agent's permission mode mid-session. Returns 'permission' on success."""
     if mode not in VALID_PERMISSION_MODES:
         console.print(
-            f"  [red]unknown mode '{mode}'.[/] "
+            f"  [#f38ba8]unknown mode '{mode}'.[/] "
             f"[dim]Valid: {', '.join(sorted(VALID_PERMISSION_MODES))}.[/]"
         )
         return None
     if agent._client is None:
-        console.print("[red]Agent not connected.[/]")
+        console.print("[#f38ba8]Agent not connected.[/]")
         return None
     try:
         await agent._client.set_permission_mode(mode)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
-        console.print(f"[red]Failed to switch permission mode: {e}[/]")
+        console.print(f"[#f38ba8]Failed to switch permission mode: {e}[/]")
         return None
     desc = {
         "default":           "prompts before destructive actions",
@@ -660,7 +680,7 @@ async def _set_perm(agent: Agent, mode: str) -> str | None:
         "dontAsk":           "don't ask permission",
         "auto":              "auto-decide",
     }.get(mode, mode)
-    console.print(f"  [green]permission mode →[/] [bold cyan]{mode}[/] [dim]({desc})[/]")
+    console.print(f"  [#a6e3a1]permission mode →[/] [bold #cba6f7]{mode}[/] [dim]({desc})[/]")
     return "permission"
 
 
@@ -708,7 +728,7 @@ async def _run_update_async() -> None:
 def _run_update() -> None:
     repo = _find_repo_root()
     if repo is None:
-        console.print("[red]Couldn't locate the hermesv2 git checkout.[/]")
+        console.print("[#f38ba8]Couldn't locate the hermesv2 git checkout.[/]")
         return
     console.print(f"[dim]git pull in {repo}...[/]")
     proc = subprocess.run(
@@ -718,10 +738,10 @@ def _run_update() -> None:
     console.print(out.strip() or "(no output)")
     if proc.returncode == 0:
         console.print(
-            "[green]Update fetched.[/] [dim]Restart hermesv2 chat to pick up changes.[/]"
+            "[#a6e3a1]Update fetched.[/] [dim]Restart hermesv2 chat to pick up changes.[/]"
         )
     else:
-        console.print(f"[red]git pull failed (exit {proc.returncode}).[/]")
+        console.print(f"[#f38ba8]git pull failed (exit {proc.returncode}).[/]")
 
 
 def _find_repo_root() -> Path | None:
@@ -773,7 +793,7 @@ def _open_in_browser(url: str) -> bool:
 def _shell_claude_plugin(args: list[str]) -> None:
     """Invoke `claude plugin <args>` and surface stdout/stderr in our console."""
     if not shutil.which("claude"):
-        console.print("[red]claude CLI not found. Install Claude Code first.[/]")
+        console.print("[#f38ba8]claude CLI not found. Install Claude Code first.[/]")
         return
     try:
         proc = subprocess.run(
@@ -781,13 +801,13 @@ def _shell_claude_plugin(args: list[str]) -> None:
             capture_output=True, text=True, timeout=180,
         )
     except subprocess.TimeoutExpired:
-        console.print("[red]claude plugin timed out.[/]")
+        console.print("[#f38ba8]claude plugin timed out.[/]")
         return
     if proc.stdout:
         console.print(proc.stdout.rstrip())
     if proc.returncode != 0:
         msg = (proc.stderr or "(no stderr)").rstrip()
-        console.print(f"[red]exit {proc.returncode}:[/] {msg}")
+        console.print(f"[#f38ba8]exit {proc.returncode}:[/] {msg}")
         return
     console.print(
         "[dim](plugin changes take effect on /new in chat or on next `hermesv2` launch)[/]"
@@ -893,7 +913,7 @@ def skill_list() -> None:
         console.print("[dim]No skills installed.[/]")
         return
     for e in entries:
-        line = f"  [cyan]{e.name:<24}[/]"
+        line = f"  [#89dceb]{e.name:<24}[/]"
         if e.description:
             line += f" [dim]{e.description}[/]"
         if e.author:
@@ -910,7 +930,7 @@ def skill_browse() -> None:
         console.print("[dim]Marketplace is empty.[/]")
         return
     for item in items:
-        console.print(f"  [bold cyan]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
+        console.print(f"  [bold #cba6f7]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
         meta = []
         if item.get("author"):
             meta.append(f"by {item['author']}")
@@ -931,7 +951,7 @@ def skill_search(query: tuple[str, ...]) -> None:
         console.print(f"[dim]No marketplace matches for '{q}'.[/]")
         return
     for item in matches:
-        console.print(f"  [cyan]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
+        console.print(f"  [#89dceb]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
 
 
 @skill_group.command(name="inspect")
@@ -941,11 +961,11 @@ def skill_inspect(name: str) -> None:
     from hermesv2 import skills as skillsmod
     text = skillsmod.inspect_skill(name)
     if text is None:
-        console.print(f"[red]not installed:[/] {name}")
+        console.print(f"[#f38ba8]not installed:[/] {name}")
         sys.exit(1)
     entry = skillsmod.get_installed(name)
     if entry:
-        console.print(f"[bold cyan]{entry.name}[/]  [dim]{entry.description}[/]")
+        console.print(f"[bold #cba6f7]{entry.name}[/]  [dim]{entry.description}[/]")
         if entry.source:
             console.print(f"[dim]source: {entry.source}[/]")
         console.print(f"[dim]path: {entry.installed_at}[/]")
@@ -962,9 +982,9 @@ def skill_install(identifier: str, name: str | None) -> None:
     try:
         entry = skillsmod.install(identifier, name=name)
     except skillsmod.SkillError as e:
-        console.print(f"[red]install failed:[/] {e}")
+        console.print(f"[#f38ba8]install failed:[/] {e}")
         sys.exit(1)
-    console.print(f"[green]installed[/] [cyan]{entry.name}[/] → [dim]{entry.installed_at}[/]")
+    console.print(f"[#a6e3a1]installed[/] [#89dceb]{entry.name}[/] → [dim]{entry.installed_at}[/]")
     if entry.description:
         console.print(f"[dim]{entry.description}[/]")
 
@@ -977,19 +997,19 @@ def skill_uninstall(name: str, yes: bool) -> None:
     from hermesv2 import skills as skillsmod
     entry = skillsmod.get_installed(name)
     if entry is None:
-        console.print(f"[red]not installed:[/] {name}")
+        console.print(f"[#f38ba8]not installed:[/] {name}")
         sys.exit(1)
     if not yes:
-        console.print(f"  [yellow]about to delete:[/] [cyan]{entry.installed_at}[/]")
+        console.print(f"  [#f9e2af]about to delete:[/] [#89dceb]{entry.installed_at}[/]")
         if not click.confirm("  proceed?", default=False):
             console.print("[dim]cancelled.[/]")
             return
     try:
         skillsmod.uninstall(name)
     except skillsmod.SkillError as e:
-        console.print(f"[red]uninstall failed:[/] {e}")
+        console.print(f"[#f38ba8]uninstall failed:[/] {e}")
         sys.exit(1)
-    console.print(f"[green]uninstalled[/] {name}")
+    console.print(f"[#a6e3a1]uninstalled[/] {name}")
 
 
 @skill_group.command(name="snapshot")
@@ -1003,16 +1023,16 @@ def skill_snapshot(direction: str, path: str) -> None:
     p = Path(path)
     if direction == "export":
         p.write_text(json.dumps(skillsmod.snapshot_export(), indent=2))
-        console.print(f"[green]wrote snapshot →[/] [cyan]{p}[/]")
+        console.print(f"[#a6e3a1]wrote snapshot →[/] [#89dceb]{p}[/]")
     else:
         try:
             data = json.loads(p.read_text())
         except (OSError, json.JSONDecodeError) as e:
-            console.print(f"[red]bad snapshot file:[/] {e}")
+            console.print(f"[#f38ba8]bad snapshot file:[/] {e}")
             sys.exit(1)
         installed = skillsmod.snapshot_import(data)
         if installed:
-            console.print(f"[green]installed {len(installed)} new skills:[/] {', '.join(installed)}")
+            console.print(f"[#a6e3a1]installed {len(installed)} new skills:[/] {', '.join(installed)}")
         else:
             console.print("[dim]nothing new to install (all already present).[/]")
 
@@ -1024,7 +1044,7 @@ def index_cmd(directory: str, rebuild: bool) -> None:
     """Index a directory of text/markdown files for `hermesv2 search`."""
     from hermesv2.search import index_directory
     n = index_directory(directory, rebuild=rebuild)
-    console.print(f"[green]Indexed {n} files[/] from [cyan]{directory}[/]")
+    console.print(f"[#a6e3a1]Indexed {n} files[/] from [#89dceb]{directory}[/]")
 
 
 @main.command(name="search")
@@ -1038,7 +1058,7 @@ def search_cmd(query: tuple[str, ...], limit: int, as_json: bool) -> None:
     try:
         hits = search(q, limit=limit)
     except ValueError as e:
-        console.print(f"[red]{e}[/]")
+        console.print(f"[#f38ba8]{e}[/]")
         sys.exit(1)
     if as_json:
         print(render_hits_json(hits))
@@ -1058,10 +1078,10 @@ def voice_cmd(audio_file: str, model: str, language: str | None, auto_run: bool)
         console.print(f"[dim]transcribing {audio_file} with whisper-{model}...[/]")
         text = transcribe(audio_file, model_name=model, language=language)
     except RuntimeError as e:
-        console.print(f"[red]{e}[/]")
+        console.print(f"[#f38ba8]{e}[/]")
         sys.exit(1)
 
-    console.print(f"\n[bold cyan]Transcript:[/] {text}\n")
+    console.print(f"\n[bold #cba6f7]Transcript:[/] {text}\n")
     if not auto_run or not text:
         return
 
@@ -1079,15 +1099,15 @@ def sessions_cmd(delete_id: str | None, limit: int) -> None:
     if delete_id:
         try:
             delete_session(delete_id)
-            console.print(f"[green]Deleted session {delete_id}.[/]")
+            console.print(f"[#a6e3a1]Deleted session {delete_id}.[/]")
         except Exception as e:  # noqa: BLE001
-            console.print(f"[red]Delete failed: {e}[/]")
+            console.print(f"[#f38ba8]Delete failed: {e}[/]")
         return
 
     try:
         sessions = list_sessions(limit=limit)
     except Exception as e:  # noqa: BLE001
-        console.print(f"[red]Failed to list sessions: {e}[/]")
+        console.print(f"[#f38ba8]Failed to list sessions: {e}[/]")
         sys.exit(1)
     if not sessions:
         console.print("[dim]No saved sessions yet.[/]")
@@ -1178,25 +1198,48 @@ def doctor() -> None:
                 "set" if discord_set else "unset — only needed for `hermesv2 discord`",
             )
         )
+        # Optional /maps connectivity probes
+        try:
+            from hermesv2 import maps as mapsmod
+            nominatim_ok = mapsmod.can_reach("https://nominatim.openstreetmap.org/")
+            checks.append((
+                "Nominatim reachable (optional)",
+                nominatim_ok,
+                "ok — /maps geocoding will work" if nominatim_ok
+                else "blocked — /maps will fall back to Photon (or agent lookup)",
+            ))
+            tile_ok = mapsmod.can_reach("https://tile.openstreetmap.org/0/0/0.png")
+            checks.append((
+                "OSM tiles reachable (optional)",
+                tile_ok,
+                "ok — /maps will render a braille map" if tile_ok
+                else "blocked — /maps will show coords only",
+            ))
+        except Exception as e:  # noqa: BLE001
+            checks.append((
+                "Maps connectivity (optional)",
+                False,
+                f"probe failed: {type(e).__name__}",
+            ))
     except Exception as e:  # noqa: BLE001
         checks.append(("Config loaded", False, f"{type(e).__name__}: {e}"))
 
     required_ok = True
     for name, ok, msg in checks:
-        sym = "[green]OK[/]" if ok else "[red]X[/]"
+        sym = "[#a6e3a1]OK[/]" if ok else "[#f38ba8]X[/]"
         console.print(f"  {sym}  [bold]{name}[/]  [dim]{msg}[/]")
         if not ok and "optional" not in name:
             required_ok = False
 
     if required_ok:
         console.print(
-            "\n[bold green]All required checks passed.[/] Just type [cyan]hermesv2[/]."
+            "\n[bold #a6e3a1]All required checks passed.[/] Just type [#89dceb]hermesv2[/]."
         )
     else:
         console.print(
-            "\n[bold red]Some required checks failed.[/] Common fixes:\n"
-            "  - Install Claude Code: [cyan]npm install -g @anthropic-ai/claude-code[/]\n"
-            "  - Log in to your Max account: [cyan]claude login[/]"
+            "\n[bold #f38ba8]Some required checks failed.[/] Common fixes:\n"
+            "  - Install Claude Code: [#89dceb]npm install -g @anthropic-ai/claude-code[/]\n"
+            "  - Log in to your Max account: [#89dceb]claude login[/]"
         )
         sys.exit(1)
 
