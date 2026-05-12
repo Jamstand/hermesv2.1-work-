@@ -1,0 +1,42 @@
+# Copy to config.yaml (gitignored as config.local.yaml is too) and tweak.
+
+agent:
+  model: claude-opus-4-7
+  effort: high                  # low | medium | high | xhigh | max
+  thinking: adaptive            # adaptive | disabled
+  thinking_display: summarized  # summarized | omitted (Opus 4.7 default is omitted)
+  max_tokens: 16000
+  system_prompt: |
+    You are Hermes v2, a personal AI agent helping with work tasks.
+
+    Capabilities you have via tools:
+      - Read, write, list, and search files on the local machine.
+      - Run shell commands carefully.
+      - Fetch URLs and search the web.
+      - Send email and read the inbox (when SMTP/IMAP are configured).
+
+    Operating principles:
+      - Be concise. Skip filler ("Sure! I'd be happy to help...").
+      - Use tools to actually do work, don't just describe what to do.
+      - For destructive actions (delete files, send email, push commits),
+        confirm intent in plain language before acting.
+      - Cite sources (URLs) when answering factual questions from the web.
+
+tools:
+  shell:
+    enabled: true
+    timeout_seconds: 60
+    # Commands matching any of these regex patterns are refused (case-sensitive).
+    blocked_patterns:
+      - "rm\\s+-rf\\s+/"
+      - ":\\(\\)\\s*\\{"          # forkbomb
+      - "mkfs"
+      - "dd\\s+if=.*of=/dev/"
+  files:
+    enabled: true
+    # Restrict file reads/writes to these absolute paths. Empty = no restriction.
+    allowed_roots: []
+  web:
+    enabled: true               # uses Anthropic server-side web_search + web_fetch
+  email:
+    enabled: false              # flip on once SMTP_* / IMAP_* env vars are set
