@@ -27,23 +27,30 @@ BANNER = r"""
                                                        W   O   R   K
 """
 
-# Small caduceus (winged messenger staff) logo for the welcome panel — Hermes
-# is the messenger god, V2 inherits the wings. Kept compact so it fits on
-# narrow terminals.
+# Detailed V2 logo for the welcome panel: ANSI-Shadow "V" stacked on "2",
+# framed by a winged emblem border with HERMES / WORK / v2.1 wordmark below.
+# About 22 lines tall × 23 cols wide — fits in a side column on most terminals.
 LOGO = r"""
-        ___
-   _.--'   '--._
-  /  __     __  \
- |  /  \   /  \  |
-  \ ====== ====== /
-   \   /WORK\   /
-    \ |  V2  | /
-     \|______|/
-      |||||||
-      |||||||
-      |||||||
-     /=======\
-    '---------'
+       ╓──────────╖
+    ╓──╜          ╚──╖
+  ╔═╝   ██╗   ██╗   ╚═╗
+  ║     ██║   ██║     ║
+  ║     ██║   ██║     ║
+  ║     ╚██╗ ██╔╝     ║
+  ║      ╚████╔╝      ║
+  ║       ╚═══╝       ║
+  ║      ██████╗      ║
+  ║      ╚════██╗     ║
+  ║       █████╔╝     ║
+  ║      ██╔═══╝      ║
+  ║      ███████╗     ║
+  ╚═╗    ╚══════╝   ╔═╝
+    ╙──╖          ╓──╜
+       ╙──────────╜
+      ━━━━━━━━━━━━━━
+       ◈  HERMES  ◈
+       ◈   WORK   ◈
+            v2.1
 """
 
 TOOL_GROUPS: dict[str, list[str]] = {
