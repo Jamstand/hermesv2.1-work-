@@ -446,6 +446,20 @@ async def _handle_slash(
         console.print(f"  [dim]using[/] [cyan]{latest.name}[/] [dim]from {latest.parent}[/]")
         return ("retry", full_prompt)
 
+    # --- Plugin (shells to `claude plugin ...`) ----------------------------
+    if cmd == "/plugin":
+        if not arg:
+            console.print(
+                "  [yellow]usage:[/] /plugin <install|list|uninstall|update|enable|disable|marketplace> [args]\n"
+                "  [dim]examples:[/]\n"
+                "    [cyan]/plugin install github@claude-plugins-official[/]\n"
+                "    [cyan]/plugin marketplace add anthropics/claude-plugins[/]\n"
+                "    [cyan]/plugin list[/]"
+            )
+            return None
+        _shell_claude_plugin(arg.split())
+        return None
+
     # --- Workspace ---------------------------------------------------------
     if cmd == "/cwd":
         console.print(f"  [dim]workspace[/]   [cyan]{cfg.agent.workspace_dir}[/]")
@@ -661,6 +675,120 @@ def _find_repo_root() -> Path | None:
 def update() -> None:
     """`git pull` the latest hermesv2 from origin."""
     _run_update()
+
+
+# ---------------------------------------------------------------------------
+# `hermesv2 plugin ...` — thin wrapper around `claude plugin` subcommand
+# ---------------------------------------------------------------------------
+
+
+def _shell_claude_plugin(args: list[str]) -> None:
+    """Invoke `claude plugin <args>` and surface stdout/stderr in our console."""
+    if not shutil.which("claude"):
+        console.print("[red]claude CLI not found. Install Claude Code first.[/]")
+        return
+    try:
+        proc = subprocess.run(
+            ["claude", "plugin", *args],
+            capture_output=True, text=True, timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        console.print("[red]claude plugin timed out.[/]")
+        return
+    if proc.stdout:
+        console.print(proc.stdout.rstrip())
+    if proc.returncode != 0:
+        msg = (proc.stderr or "(no stderr)").rstrip()
+        console.print(f"[red]exit {proc.returncode}:[/] {msg}")
+        return
+    console.print(
+        "[dim](plugin changes take effect on /new in chat or on next `hermesv2` launch)[/]"
+    )
+
+
+@main.group(name="plugin")
+def plugin_group() -> None:
+    """Install and manage Claude Code plugins.
+
+    Thin wrapper around `claude plugin`. Use plugin@marketplace for a specific
+    marketplace, e.g. `hermesv2 plugin install github@claude-plugins-official`.
+    """
+
+
+@plugin_group.command(name="install")
+@click.argument("plugin", required=True)
+def plugin_install(plugin: str) -> None:
+    """Install a plugin (use plugin@marketplace for specific marketplace)."""
+    _shell_claude_plugin(["install", plugin])
+
+
+@plugin_group.command(name="uninstall")
+@click.argument("plugin")
+def plugin_uninstall(plugin: str) -> None:
+    """Uninstall a plugin."""
+    _shell_claude_plugin(["uninstall", plugin])
+
+
+@plugin_group.command(name="list")
+def plugin_list() -> None:
+    """List installed plugins."""
+    _shell_claude_plugin(["list"])
+
+
+@plugin_group.command(name="update")
+@click.argument("plugin")
+def plugin_update(plugin: str) -> None:
+    """Update a plugin to the latest version."""
+    _shell_claude_plugin(["update", plugin])
+
+
+@plugin_group.command(name="enable")
+@click.argument("plugin")
+def plugin_enable(plugin: str) -> None:
+    """Enable a disabled plugin."""
+    _shell_claude_plugin(["enable", plugin])
+
+
+@plugin_group.command(name="disable")
+@click.argument("plugin")
+def plugin_disable(plugin: str) -> None:
+    """Disable an enabled plugin."""
+    _shell_claude_plugin(["disable", plugin])
+
+
+@plugin_group.group(name="marketplace")
+def plugin_marketplace_group() -> None:
+    """Manage plugin marketplaces."""
+
+
+@plugin_marketplace_group.command(name="add")
+@click.argument("source")
+def plugin_marketplace_add(source: str) -> None:
+    """Add a marketplace from URL, path, or GitHub repo (e.g. owner/repo)."""
+    _shell_claude_plugin(["marketplace", "add", source])
+
+
+@plugin_marketplace_group.command(name="list")
+def plugin_marketplace_list() -> None:
+    """List configured marketplaces."""
+    _shell_claude_plugin(["marketplace", "list"])
+
+
+@plugin_marketplace_group.command(name="remove")
+@click.argument("name")
+def plugin_marketplace_remove(name: str) -> None:
+    """Remove a configured marketplace."""
+    _shell_claude_plugin(["marketplace", "remove", name])
+
+
+@plugin_marketplace_group.command(name="update")
+@click.argument("name", required=False)
+def plugin_marketplace_update(name: str | None) -> None:
+    """Update marketplace(s) from their source (all if no name given)."""
+    args = ["marketplace", "update"]
+    if name:
+        args.append(name)
+    _shell_claude_plugin(args)
 
 
 @main.group(name="skill")

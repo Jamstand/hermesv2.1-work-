@@ -538,6 +538,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/retry",      "Re-send the last user prompt to the agent"),
     ("/img",        "Send an image to the agent (usage: /img <path> [question])"),
     ("/screenshot", "Send your most recent screenshot to the agent (optional question)"),
+    ("/plugin",     "Manage Claude Code plugins (usage: /plugin install <name>@<marketplace>)"),
     ("/branch",     "Fork the current session under a new name (usage: /branch <name>)"),
     ("/fork",       "Fork the current session (alias for /branch)"),
     ("/compress",   "Manually compact the conversation summary"),
