@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermesv2"
-version = "0.2.0"
+version = "0.5.0"
 description = "Personal Hermes-style agent on top of Claude Code (uses your Claude Max subscription via OAuth)."
 readme = "README.md"
 requires-python = ">=3.10"

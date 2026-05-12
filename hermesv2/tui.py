@@ -122,8 +122,8 @@ def render_startup(
     tagline.append("    Personal Work Agent  ", style="dim italic")
     tagline.append("·", style="dim")
     tagline.append("  Max-subscription billing  ", style="dim italic")
-    tagline.append("·", style="dim")
-    tagline.append(f"  v{__version__}", style="dim italic")
+    tagline.append("·  ", style="dim")
+    tagline.append(f"v{__version__}", style="hermes.highlight.bold")
     console.print(tagline)
     console.print()
     console.print(_welcome_panel(settings, session_name))
@@ -210,13 +210,18 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
         padding=(0, 2),
     )
 
+    active_theme = themes.load_active_palette().name
     title = Text()
     title.append(" Hermesv2.1 ", style="hermes.title")
-    title.append("(work)", style="hermes.highlight.bold")
+    title.append("(work) ", style="hermes.highlight.bold")
+    title.append(f"v{__version__}", style="hermes.warm")
     title.append(" · ", style="dim")
     title.append(settings.model, style="hermes.success")
     title.append(" · ", style="dim")
-    title.append("Max subscription ", style="hermes.chevron")
+    title.append("Max subscription", style="hermes.chevron")
+    title.append("  ·  ", style="dim")
+    title.append(active_theme, style="hermes.info")
+    title.append(" ", style="dim")
 
     return Panel(
         body,

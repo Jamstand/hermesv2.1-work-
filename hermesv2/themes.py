@@ -102,6 +102,38 @@ PALETTES: dict[str, Palette] = {
         error="#eb6f92", text="#e0def4", dim="#6e6a86",
         bg="#191724", bg_alt="#1f1d2e",
     ),
+    "monokai": Palette(
+        name="monokai",
+        label="Monokai · classic vibrant, pink/purple/green",
+        primary="#f92672", secondary="#ae81ff", warm="#fd971f",
+        highlight="#e6db74", success="#a6e22e", info="#66d9ef", info2="#ae81ff",
+        error="#f92672", text="#f8f8f2", dim="#75715e",
+        bg="#272822", bg_alt="#1e1f1c",
+    ),
+    "solarized-dark": Palette(
+        name="solarized-dark",
+        label="Solarized Dark · calm cyan/blue on deep teal",
+        primary="#268bd2", secondary="#d33682", warm="#cb4b16",
+        highlight="#b58900", success="#859900", info="#2aa198", info2="#6c71c4",
+        error="#dc322f", text="#93a1a1", dim="#586e75",
+        bg="#002b36", bg_alt="#073642",
+    ),
+    "everforest": Palette(
+        name="everforest",
+        label="Everforest · natural greens and earth tones",
+        primary="#a7c080", secondary="#d699b6", warm="#e69875",
+        highlight="#dbbc7f", success="#83c092", info="#7fbbb3", info2="#d699b6",
+        error="#e67e80", text="#d3c6aa", dim="#859289",
+        bg="#2d353b", bg_alt="#232a2e",
+    ),
+    "synthwave": Palette(
+        name="synthwave",
+        label="Synthwave · neon retro pink/cyan/yellow",
+        primary="#ff7edb", secondary="#36f9f6", warm="#fede5d",
+        highlight="#fede5d", success="#72f1b8", info="#36f9f6", info2="#b893ce",
+        error="#fe4450", text="#f2f3f7", dim="#5a5475",
+        bg="#1a1727", bg_alt="#14111c",
+    ),
 }
 
 DEFAULT_THEME = "catppuccin-mocha"

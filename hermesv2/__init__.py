@@ -4,4 +4,4 @@ from hermesv2.agent import Agent
 from hermesv2.config import AgentSettings, Config, load_config
 
 __all__ = ["Agent", "AgentSettings", "Config", "load_config"]
-__version__ = "0.2.0"
+__version__ = "0.5.0"
