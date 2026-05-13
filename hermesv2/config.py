@@ -61,12 +61,24 @@ class SubscriptionsToolSettings:
 
 
 @dataclass
+class PlaidToolSettings:
+    enabled: bool = False
+    env: str = "sandbox"            # sandbox | development | production
+    items_path: str = "~/.config/hermesv2/plaid_items.json"
+    cache_path: str = "~/.config/hermesv2/plaid_transactions.json"
+    products: list[str] = field(default_factory=lambda: ["transactions"])
+    country_codes: list[str] = field(default_factory=lambda: ["US"])
+    link_port: int = 8765
+
+
+@dataclass
 class ToolSettings:
     shell: ShellToolSettings = field(default_factory=ShellToolSettings)
     files: FilesToolSettings = field(default_factory=FilesToolSettings)
     subscriptions: SubscriptionsToolSettings = field(
         default_factory=SubscriptionsToolSettings
     )
+    plaid: PlaidToolSettings = field(default_factory=PlaidToolSettings)
     web: bool = True
     email: bool = False
 
@@ -81,6 +93,7 @@ class Config:
     imap: dict[str, str] = field(default_factory=dict)
     slack: dict[str, str] = field(default_factory=dict)
     discord: dict[str, str] = field(default_factory=dict)
+    plaid: dict[str, str] = field(default_factory=dict)
 
 
 def _merge(data: dict[str, Any] | None, defaults: Any) -> Any:
@@ -143,5 +156,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         "signing_secret": os.environ.get("SLACK_SIGNING_SECRET", ""),
     }
     cfg.discord = {"bot_token": os.environ.get("DISCORD_BOT_TOKEN", "")}
+    cfg.plaid = {
+        "client_id": os.environ.get("PLAID_CLIENT_ID", ""),
+        "secret": os.environ.get("PLAID_SECRET", ""),
+        "env": os.environ.get("PLAID_ENV", ""),
+    }
 
     return cfg

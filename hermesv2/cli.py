@@ -129,3 +129,93 @@ def discord(config_path: str | None) -> None:
 
     cfg = load_config(config_path)
     run_discord_bot(cfg)
+
+
+# --- Plaid -------------------------------------------------------------------
+
+
+def _plaid_client(config_path: str | None):
+    cfg = load_config(config_path)
+    if not cfg.plaid.get("client_id") or not cfg.plaid.get("secret"):
+        console.print("[red]PLAID_CLIENT_ID / PLAID_SECRET are not set.[/]")
+        sys.exit(1)
+    from hermesv2.integrations.plaid_client import PlaidClient, PlaidNotInstalled
+
+    try:
+        client = PlaidClient(
+            cfg.tools.plaid,
+            client_id=cfg.plaid["client_id"],
+            secret=cfg.plaid["secret"],
+            env=cfg.plaid.get("env") or cfg.tools.plaid.env,
+        )
+    except PlaidNotInstalled as e:
+        console.print(f"[red]{e}[/]")
+        sys.exit(1)
+    return cfg, client
+
+
+@main.group()
+def plaid() -> None:
+    """Manage Plaid bank/card linking and transaction sync."""
+
+
+@plaid.command("link")
+@click.option("--config", "config_path", default=None, help="Path to config YAML.")
+@click.option("--no-browser", is_flag=True, help="Don't auto-open the browser.")
+def plaid_link(config_path: str | None, no_browser: bool) -> None:
+    """One-time interactive flow to link a bank/card via Plaid Link."""
+    from pathlib import Path
+
+    from hermesv2.integrations.plaid_link_server import run_link_flow
+
+    cfg, client = _plaid_client(config_path)
+    items_path = Path(cfg.tools.plaid.items_path).expanduser()
+    console.print(
+        f"[cyan]Plaid env:[/] {client.env_name} — opening Link "
+        f"on http://127.0.0.1:{cfg.tools.plaid.link_port}"
+    )
+    item = run_link_flow(
+        client,
+        items_path=items_path,
+        port=cfg.tools.plaid.link_port,
+        open_browser=not no_browser,
+    )
+    console.print(
+        f"[green]Linked {item.get('institution_name', '?')}[/] "
+        f"(item_id={item['item_id'][:8]}). Token saved to {items_path}."
+    )
+
+
+@plaid.command("sync")
+@click.option("--config", "config_path", default=None, help="Path to config YAML.")
+def plaid_sync(config_path: str | None) -> None:
+    """Pull new transactions from every linked institution."""
+    from hermesv2.tools.plaid_tools import build_plaid_tools
+
+    cfg, _ = _plaid_client(config_path)
+    tools = {
+        t.name: t
+        for t in build_plaid_tools(
+            cfg.tools.plaid, cfg.plaid, cfg.tools.subscriptions.store_path
+        )
+    }
+    console.print(tools["plaid_sync_transactions"].handler({}))
+
+
+@plaid.command("recurring")
+@click.option("--config", "config_path", default=None, help="Path to config YAML.")
+@click.option("--min-amount", default=0.0, type=float)
+def plaid_recurring(config_path: str | None, min_amount: float) -> None:
+    """Show recurring outflows Plaid detected from real transactions."""
+    from hermesv2.tools.plaid_tools import build_plaid_tools
+
+    cfg, _ = _plaid_client(config_path)
+    tools = {
+        t.name: t
+        for t in build_plaid_tools(
+            cfg.tools.plaid, cfg.plaid, cfg.tools.subscriptions.store_path
+        )
+    }
+    console.print(
+        tools["plaid_recurring_subscriptions"].handler({"min_amount": min_amount})
+    )

@@ -62,8 +62,38 @@ In the chat REPL:
 | `send_email`  | Local (SMTP)  | Off by default; flip `tools.email` and set `SMTP_*` env vars. |
 | `read_inbox`  | Local (IMAP)  | Same. |
 | subscription tools | Local (JSON) | Off by default; flip `tools.subscriptions.enabled`. Adds `add_subscription`, `list_subscriptions`, `update_subscription`, `remove_subscription`, `subscription_summary`, `upcoming_renewals`. |
+| plaid tools | Local + Plaid API | Off by default; needs `pip install -e ".[plaid]"`, `PLAID_CLIENT_ID`/`PLAID_SECRET`, and `tools.plaid.enabled`. Adds `plaid_list_items`, `plaid_sync_transactions`, `plaid_recent_transactions`, `plaid_recurring_subscriptions`, `plaid_reconcile_subscriptions`, `plaid_remove_item`. |
 | `web_search`  | Server-side   | Built-in Claude tool. |
 | `web_fetch`   | Server-side   | Built-in Claude tool. |
+
+## Plaid billing integration
+
+Live bank/card linking via [Plaid](https://plaid.com). The agent can see what
+you're actually being billed for and reconcile against the manual subscription
+tracker.
+
+```sh
+pip install -e ".[plaid]"
+# In .env:
+#   PLAID_CLIENT_ID=...
+#   PLAID_SECRET=...
+#   PLAID_ENV=sandbox            # sandbox | development | production
+# In config.yaml: tools.plaid.enabled: true
+
+# One-time per institution: opens a browser to Plaid Link
+hermesv2 plaid link
+
+# Pull new transactions
+hermesv2 plaid sync
+
+# Show recurring outflows Plaid detected
+hermesv2 plaid recurring
+```
+
+Sandbox test credentials are `user_good` / `pass_good`. Access tokens are
+stored at `~/.config/hermesv2/plaid_items.json` (chmod 0600). To revoke, drop
+the local item with `plaid_remove_item` *and* delete the Item in the Plaid
+Dashboard.
 
 Sandboxing: `tools.files.allowed_roots` in `config.yaml` restricts file ops to specific paths. `tools.shell.blocked_patterns` adds regex denies for bash commands.
 

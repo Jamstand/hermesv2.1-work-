@@ -42,6 +42,11 @@ def _load(store_path: Path) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
+def load_subscriptions(store_path: str | Path) -> list[dict[str, Any]]:
+    """Public reader for other modules (e.g. Plaid reconciliation)."""
+    return _load(Path(str(store_path)).expanduser())
+
+
 def _save(store_path: Path, subs: list[dict[str, Any]]) -> None:
     store_path.parent.mkdir(parents=True, exist_ok=True)
     store_path.write_text(json.dumps(subs, indent=2))

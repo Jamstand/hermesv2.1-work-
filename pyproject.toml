@@ -22,7 +22,8 @@ dependencies = [
 [project.optional-dependencies]
 slack = ["slack-bolt>=1.21", "slack-sdk>=3.33"]
 discord = ["discord.py>=2.4"]
-all = ["slack-bolt>=1.21", "slack-sdk>=3.33", "discord.py>=2.4"]
+plaid = ["plaid-python>=23.0"]
+all = ["slack-bolt>=1.21", "slack-sdk>=3.33", "discord.py>=2.4", "plaid-python>=23.0"]
 dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]

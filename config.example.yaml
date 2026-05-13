@@ -39,6 +39,14 @@ tools:
   subscriptions:
     enabled: false              # flip on to track recurring charges in a local JSON store
     store_path: ~/.config/hermesv2/subscriptions.json
+  plaid:
+    enabled: false              # flip on after `pip install -e ".[plaid]"` and PLAID_* env vars
+    env: sandbox                # sandbox | development | production
+    items_path: ~/.config/hermesv2/plaid_items.json
+    cache_path: ~/.config/hermesv2/plaid_transactions.json
+    products: ["transactions"]
+    country_codes: ["US"]
+    link_port: 8765
   web:
     enabled: true               # uses Anthropic server-side web_search + web_fetch
   email:

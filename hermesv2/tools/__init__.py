@@ -23,6 +23,20 @@ def build_tools(config: Config) -> tuple[list[Tool], list[dict[str, Any]]]:
         custom.extend(build_file_tools(config.tools.files))
     if config.tools.subscriptions.enabled:
         custom.extend(build_subscription_tools(config.tools.subscriptions))
+    if (
+        config.tools.plaid.enabled
+        and config.plaid.get("client_id")
+        and config.plaid.get("secret")
+    ):
+        from hermesv2.tools.plaid_tools import build_plaid_tools
+
+        custom.extend(
+            build_plaid_tools(
+                config.tools.plaid,
+                config.plaid,
+                config.tools.subscriptions.store_path,
+            )
+        )
     if config.tools.email and config.smtp.get("host"):
         custom.extend(build_email_tools(config.smtp, config.imap))
     if config.tools.web:
