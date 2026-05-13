@@ -157,7 +157,14 @@ def _merge(data: dict[str, Any] | None, defaults: Any) -> Any:
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> Config:
+    # Walk-up search first (cwd → parents). `hermesv2 setup-provider` writes
+    # to ~/.env, so also explicitly load that as a fallback so the API keys
+    # are picked up no matter where hermesv2 is launched from. Existing env
+    # vars take precedence over both.
     load_dotenv()
+    home_env = Path.home() / ".env"
+    if home_env.is_file():
+        load_dotenv(home_env, override=False)
 
     cfg = Config()
 

@@ -894,6 +894,113 @@ def update() -> None:
     _run_update()
 
 
+@main.command("setup-provider")
+@click.option("--provider", "provider_name",
+              type=click.Choice(["claude", "openrouter", "ollama", "gemini"]),
+              default=None,
+              help="Skip the interactive picker.")
+@click.option("--model", "model_name", default=None,
+              help="Model to use. Defaults to a sensible per-provider pick.")
+@click.option("--key", "api_key", default=None,
+              help="API key for the provider (skips the prompt). Ignored for ollama.")
+def setup_provider(provider_name: str | None, model_name: str | None, api_key: str | None) -> None:
+    """Interactive setup: writes ~/.config/hermesv2/config.yaml + .env for non-Claude providers."""
+    from hermesv2.providers import PROVIDER_PRESETS
+
+    if provider_name is None:
+        console.print("\n[hermes.title]Pick a provider[/]")
+        choices = ["claude"] + list(PROVIDER_PRESETS.keys())
+        for i, name in enumerate(choices, 1):
+            if name == "claude":
+                label = "Claude (your Max subscription — full tool use)"
+            else:
+                label = PROVIDER_PRESETS[name].label
+            console.print(f"  [hermes.highlight]{i}[/]  {name:12s}  [dim]{label}[/]")
+        console.print()
+        try:
+            sel = click.prompt("which", type=click.IntRange(1, len(choices)), default=1)
+        except click.Abort:
+            console.print("[dim]cancelled.[/]")
+            return
+        provider_name = choices[sel - 1]
+
+    config_dir = Path.home() / ".config" / "hermesv2"
+    config_path = config_dir / "config.yaml"
+
+    if provider_name == "claude":
+        # Reset to defaults: just remove the provider line if it's there.
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("agent:\n  provider: claude\n", encoding="utf-8")
+        console.print(f"  [hermes.success]wrote[/] [hermes.info]{config_path}[/]")
+        console.print("  [dim]restart hermesv2 to use Claude.[/]")
+        return
+
+    preset = PROVIDER_PRESETS[provider_name]
+    model = model_name or preset.default_model
+
+    if preset.api_key_env and api_key is None:
+        console.print(
+            f"\n[hermes.title]API key[/]  [dim]({preset.api_key_env})[/]\n"
+            f"  [dim]Get one at:[/] {_signup_url(provider_name)}"
+        )
+        try:
+            api_key = click.prompt("paste your key", hide_input=True, default="", show_default=False)
+        except click.Abort:
+            console.print("[dim]cancelled.[/]")
+            return
+        api_key = api_key.strip()
+        if not api_key:
+            console.print(f"[hermes.error]No key given. Aborting.[/]")
+            return
+
+    # Write config.yaml
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        f"agent:\n  provider: {provider_name}\n  model: {model}\n",
+        encoding="utf-8",
+    )
+    console.print(f"  [hermes.success]wrote[/] [hermes.info]{config_path}[/]")
+
+    # Append API key to ~/.env (or merge in-place if line already exists)
+    if preset.api_key_env and api_key:
+        env_path = Path.home() / ".env"
+        _set_env_line(env_path, preset.api_key_env, api_key)
+        console.print(f"  [hermes.success]wrote[/] [hermes.info]{env_path}[/] [dim](key set)[/]")
+
+    if provider_name == "ollama":
+        console.print(
+            "  [dim]Make sure Ollama is running locally:[/] "
+            "[hermes.info]ollama serve[/] [dim]and[/] [hermes.info]ollama pull " + model + "[/]"
+        )
+
+    console.print("\n  [hermes.success]Done.[/] [dim]Restart hermesv2 to use[/] "
+                  f"[hermes.info]{provider_name}[/] [dim]with[/] [hermes.info]{model}[/]")
+
+
+def _signup_url(provider_name: str) -> str:
+    return {
+        "openrouter": "https://openrouter.ai/keys",
+        "gemini":     "https://aistudio.google.com/apikey",
+    }.get(provider_name, "")
+
+
+def _set_env_line(path: Path, key: str, value: str) -> None:
+    """Replace KEY=... line in `path` if present, else append. Creates the file if missing."""
+    lines: list[str] = []
+    if path.is_file():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    new_line = f"{key}={value}"
+    found = False
+    for i, line in enumerate(lines):
+        if line.startswith(f"{key}="):
+            lines[i] = new_line
+            found = True
+            break
+    if not found:
+        lines.append(new_line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 @main.command()
 @click.option("--path", "repo_path", default=None,
               help="Repo to audit. Defaults to the hermesv2 repo this binary lives in.")
