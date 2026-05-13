@@ -558,7 +558,7 @@ def render_status_bar(
     parts.append(bar, style="dim")
     parts.append(" │ ", style="dim")
     parts.append(f"{_fmt_seconds(session_seconds)}", style="dim")
-    parts.append(" │ ⌚ ", style="dim")
+    parts.append(" │ 🕐 ", style="dim")
     parts.append(f"{_fmt_seconds(turn_seconds)}", style="dim")
     console.print(parts)
 
