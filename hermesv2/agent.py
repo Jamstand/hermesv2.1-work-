@@ -173,17 +173,18 @@ class Agent:
             await self._client.disconnect()
             self._client = None
 
-    async def reconfigure(self, current_session_id: str | None = None) -> None:
+    async def reconfigure(self) -> None:
         """Rebuild ClaudeAgentOptions from current self.settings and reconnect.
 
         Used by runtime slash commands like /effort that mutate settings
         after the client is already connected. The SDK has no set_effort()
         equivalent to set_model(), so we disconnect and reconnect with
-        fresh options. The current session_id is captured as
-        resume_session_id so the conversation continues uninterrupted.
+        fresh options.
+
+        Caveat: the Claude CLI's --resume expects a UUID, and hermesv2's
+        session_id format isn't one. So the new client starts with no
+        memory of prior turns. The visible chat scrollback is unaffected.
         """
-        if current_session_id:
-            self.resume_session_id = current_session_id
         await self.disconnect()
         await self.connect()
 

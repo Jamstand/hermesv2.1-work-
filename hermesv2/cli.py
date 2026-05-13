@@ -712,8 +712,9 @@ async def _handle_slash(
             cfg.agent.effort = prev
             return None
         console.print(f"  [dim]reconfiguring agent ({prev} → {arg})...[/]")
+        console.print("  [dim](agent restart — model loses prior-turn context; your scrollback stays)[/]")
         try:
-            await agent.reconfigure(current_session_id=session_id)
+            await agent.reconfigure()
         except Exception as e:  # noqa: BLE001
             console.print(f"  [hermes.error]reconnect failed:[/] {e}")
             return None
