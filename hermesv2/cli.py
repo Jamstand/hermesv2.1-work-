@@ -30,7 +30,7 @@ from hermesv2.agent import (
     ToolResult,
     TurnDone,
 )
-from hermesv2.config import Config, load_config
+from hermesv2.config import VALID_EFFORTS, Config, load_config, save_active_effort
 
 # Active theme is loaded from ~/.hermes-memory/theme (set via `/theme <name>`).
 # The Console is built with a Rich Theme that maps every `hermes.*` and
@@ -685,6 +685,40 @@ async def _handle_slash(
         except Exception as e:  # noqa: BLE001
             console.print(f"[hermes.error]Failed to switch model: {e}[/]")
             return None
+    if cmd == "/effort":
+        # No-arg form opens the picker dialog. Pass an effort name to skip it.
+        if not arg:
+            chosen = await tui.pick_effort_dialog(console, cfg.agent.effort)
+            if not chosen:
+                console.print("  [dim](no change)[/]")
+                return None
+            if chosen == cfg.agent.effort:
+                console.print(f"  [dim]already on[/] [hermes.info]{chosen}[/]")
+                return None
+            arg = chosen
+        if arg not in VALID_EFFORTS:
+            console.print(f"  [hermes.error]unknown effort:[/] [hermes.info]{arg}[/]")
+            console.print(f"  [dim]valid:[/] {', '.join(VALID_EFFORTS)}")
+            return None
+        if agent._client is None:
+            console.print("[hermes.error]Agent not connected.[/]")
+            return None
+        prev = cfg.agent.effort
+        cfg.agent.effort = arg
+        try:
+            save_active_effort(arg, cfg.agent.memory_dir)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"  [hermes.error]failed to save effort:[/] {e}")
+            cfg.agent.effort = prev
+            return None
+        console.print(f"  [dim]reconfiguring agent ({prev} → {arg})...[/]")
+        try:
+            await agent.reconfigure(current_session_id=session_id)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"  [hermes.error]reconnect failed:[/] {e}")
+            return None
+        console.print(f"  [hermes.success]switched effort to[/] [hermes.info]{arg}[/]")
+        return None
     if cmd == "/update":
         await _run_update_async()
         return None

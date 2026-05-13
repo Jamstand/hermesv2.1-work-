@@ -314,6 +314,16 @@ KNOWN_MODELS: list[tuple[str, str]] = [
 ]
 
 
+# Effort levels for the /effort picker. Tuples of (effort_id, label).
+KNOWN_EFFORTS: list[tuple[str, str]] = [
+    ("low",    "minimal thinking · cheap, snappy replies"),
+    ("medium", "moderate thinking · balanced"),
+    ("high",   "deep thinking · default"),
+    ("xhigh",  "extra-deep thinking · hard problems"),
+    ("max",    "maximum thinking budget · only when you really need it"),
+]
+
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 
@@ -400,6 +410,53 @@ async def pick_model_dialog(console: Console, current_model: str) -> str | None:
         idx = int(raw) - 1
         if 0 <= idx < len(KNOWN_MODELS):
             return KNOWN_MODELS[idx][0]
+    except ValueError:
+        pass
+    console.print("  [hermes.error]invalid choice[/]")
+    return None
+
+
+async def pick_effort_dialog(console: Console, current_effort: str) -> str | None:
+    """Numbered-list effort picker. Returns chosen effort, or None if cancelled."""
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.formatted_text import HTML
+
+    console.print()
+    console.print(
+        f"  [hermes.chevron]▎[/] [bold cyan]Effort Picker[/] "
+        f"[dim]· currently on[/] [hermes.secondary]{current_effort}[/]"
+    )
+    console.print()
+    width = max(len(eid) for eid, _ in KNOWN_EFFORTS) + 1
+    for i, (effort_id, label) in enumerate(KNOWN_EFFORTS, 1):
+        marker = " [hermes.highlight.bold]← current[/]" if effort_id == current_effort else ""
+        console.print(
+            f"    [hermes.highlight.bold]{i}.[/] "
+            f"[hermes.info]{effort_id:<{width}}[/] "
+            f"[dim]· {label}[/]{marker}"
+        )
+    console.print()
+
+    ps: PromptSession[str] = PromptSession()
+    n_efforts = len(KNOWN_EFFORTS)
+    try:
+        raw = await ps.prompt_async(
+            HTML(themes.picker_prompt_html(
+                themes.load_active_palette(),
+                f"pick a number (1-{n_efforts}), or Enter alone to cancel:",
+            ))
+        )
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        idx = int(raw) - 1
+        if 0 <= idx < len(KNOWN_EFFORTS):
+            return KNOWN_EFFORTS[idx][0]
     except ValueError:
         pass
     console.print("  [hermes.error]invalid choice[/]")
@@ -583,6 +640,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/sessions",   "List saved Claude Code sessions"),
     ("/tools",      "List built-in tools (Read, Write, Bash, etc.)"),
     ("/model",      "Switch model mid-session (usage: /model <name>)"),
+    ("/effort",     "Change agent effort (interactive picker; persistent)"),
     ("/update",     "git pull the latest hermesv2 from origin"),
 ]
 

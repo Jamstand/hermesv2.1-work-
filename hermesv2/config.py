@@ -14,6 +14,28 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+EFFORT_FILE = "effort"  # under ~/.hermes-memory/, set via /effort
+
+
+def save_active_effort(effort: str, memory_dir_path: str | os.PathLike[str]) -> None:
+    """Persist the effort selection so it survives restarts."""
+    from hermesv2.memory import memory_dir as _mem_dir
+    mem_dir = _mem_dir(memory_dir_path)
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    (mem_dir / EFFORT_FILE).write_text(effort + "\n")
+
+
+def load_active_effort(memory_dir_path: str | os.PathLike[str]) -> str | None:
+    from hermesv2.memory import memory_dir as _mem_dir
+    f = _mem_dir(memory_dir_path) / EFFORT_FILE
+    if not f.is_file():
+        return None
+    val = f.read_text().strip()
+    return val if val in VALID_EFFORTS else None
+
+
 DEFAULT_SYSTEM_PROMPT = """You are Hermes v2, a personal AI agent helping with work tasks.
 
 You have built-in tools for: reading and writing files, running shell commands,
@@ -141,5 +163,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         "signing_secret": os.environ.get("SLACK_SIGNING_SECRET", ""),
     }
     cfg.discord = {"bot_token": os.environ.get("DISCORD_BOT_TOKEN", "")}
+
+    saved_effort = load_active_effort(cfg.agent.memory_dir)
+    if saved_effort:
+        cfg.agent.effort = saved_effort
 
     return cfg

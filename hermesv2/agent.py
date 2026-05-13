@@ -173,6 +173,20 @@ class Agent:
             await self._client.disconnect()
             self._client = None
 
+    async def reconfigure(self, current_session_id: str | None = None) -> None:
+        """Rebuild ClaudeAgentOptions from current self.settings and reconnect.
+
+        Used by runtime slash commands like /effort that mutate settings
+        after the client is already connected. The SDK has no set_effort()
+        equivalent to set_model(), so we disconnect and reconnect with
+        fresh options. The current session_id is captured as
+        resume_session_id so the conversation continues uninterrupted.
+        """
+        if current_session_id:
+            self.resume_session_id = current_session_id
+        await self.disconnect()
+        await self.connect()
+
     async def __aenter__(self) -> Agent:
         await self.connect()
         return self
