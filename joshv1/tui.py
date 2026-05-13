@@ -493,6 +493,26 @@ def render_thinking_delta(console: Console, text: str) -> None:
 
 
 def render_tool_call(console: Console, name: str, tool_input: dict) -> None:
+    # Special-case AskUserQuestion so the question + options render as a
+    # readable prompt instead of a raw dict dump.
+    if name == "AskUserQuestion" and isinstance(tool_input, dict):
+        questions = tool_input.get("questions") or []
+        if questions:
+            console.print(f"\n  [josh.info]⚙ {name}[/]")
+            for q in questions:
+                qtext = q.get("question", "")
+                header = q.get("header", "")
+                multi = q.get("multiSelect", False)
+                hint = " [dim](multi-select)[/]" if multi else ""
+                tag = f" [josh.secondary][{header}][/]" if header else ""
+                console.print(f"  [bold]{qtext}[/]{tag}{hint}")
+                for opt in q.get("options", []):
+                    label = opt.get("label", "")
+                    desc = opt.get("description", "")
+                    console.print(f"    • [bold]{label}[/] [dim]— {desc}[/]")
+                console.print()
+            return
+
     preview = str(tool_input)
     if len(preview) > 200:
         preview = preview[:200] + "..."
