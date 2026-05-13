@@ -44,8 +44,8 @@ BANNER = r"""
 # framed by a winged emblem border with HERMES / WORK / v2.1 wordmark below.
 # About 22 lines tall × 23 cols wide — fits in a side column on most terminals.
 LOGO = r"""
-       ╓──────────╖
-    ╓──╜          ╚──╖
+       ╔══════════╗
+    ╔══╝          ╚══╗
   ╔═╝   ██╗   ██╗   ╚═╗
   ║     ██║   ██║     ║
   ║     ██║   ██║     ║
@@ -58,8 +58,8 @@ LOGO = r"""
   ║      ██╔═══╝      ║
   ║      ███████╗     ║
   ╚═╗    ╚══════╝   ╔═╝
-    ╙──╖          ╓──╜
-       ╙──────────╜
+    ╚══╗          ╔══╝
+       ╚══════════╝
       ━━━━━━━━━━━━━━
        ◈  HERMES  ◈
        ◈   WORK   ◈
@@ -558,7 +558,7 @@ def render_status_bar(
     parts.append(bar, style="dim")
     parts.append(" │ ", style="dim")
     parts.append(f"{_fmt_seconds(session_seconds)}", style="dim")
-    parts.append(" │ ⏲ ", style="dim")
+    parts.append(" │ ⌚ ", style="dim")
     parts.append(f"{_fmt_seconds(turn_seconds)}", style="dim")
     console.print(parts)
 
