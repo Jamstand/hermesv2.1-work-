@@ -411,12 +411,19 @@ def render_assistant_markdown(console: Console, text: str) -> None:
 
     Used instead of streaming raw text so things like **bold**, bullet lists,
     `inline code`, and code fences render with proper styling.
+
+    Falls back to plain text if Rich's markdown renderer (or its pygments
+    dependency for code fences) raises — a broken pygments install
+    shouldn't crash the whole agent mid-reply.
     """
     if not text.strip():
         return
     from rich.markdown import Markdown
-    md = Markdown(text, code_theme="monokai", inline_code_lexer="python")
-    console.print(md)
+    try:
+        md = Markdown(text, code_theme="monokai")
+        console.print(md)
+    except Exception:
+        console.print(text, highlight=False)
 
 
 def assistant_label(console: Console) -> None:
