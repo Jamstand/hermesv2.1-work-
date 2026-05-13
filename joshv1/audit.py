@@ -1,8 +1,8 @@
-"""Self-improvement audit: point the agent at the hermesv2 repo and ask
+"""Self-improvement audit: point the agent at the joshv1 repo and ask
 it to list concrete things worth changing.
 
 Used by:
-- `hermesv2 audit` CLI subcommand (one-shot scan, writes a markdown report)
+- `joshv1 audit` CLI subcommand (one-shot scan, writes a markdown report)
 - `/audit` slash command (mid-session scan, streams findings into chat)
 """
 
@@ -11,17 +11,17 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from hermesv2.memory import memory_dir
+from joshv1.memory import memory_dir
 
 
 AUDIT_PROMPT = """\
-You are auditing the hermesv2 codebase for self-improvement. The repo \
+You are auditing the joshv1 codebase for self-improvement. The repo \
 contains the same agent that's reading this prompt — be honest, specific, \
 and concrete.
 
 Walk the project tree (start with `Read` on README.md and pyproject.toml, \
-then list `hermesv2/` and explore the modules that look most interesting). \
-Spend most of your time on the Python source under `hermesv2/`. Skip \
+then list `joshv1/` and explore the modules that look most interesting). \
+Spend most of your time on the Python source under `joshv1/`. Skip \
 generated files, `__pycache__`, `.venv`, build artifacts.
 
 Produce a markdown report with these sections, in order:
@@ -69,7 +69,7 @@ def next_report_path(base_memory_dir: str | Path | None = None) -> Path:
 
 
 def find_hermes_repo() -> Path | None:
-    """Walk up from this module to find the hermesv2 repo root (.git dir)."""
+    """Walk up from this module to find the joshv1 repo root (.git dir)."""
     here = Path(__file__).resolve()
     for ancestor in [here, *here.parents]:
         if (ancestor / ".git").is_dir():
@@ -81,7 +81,7 @@ def prompt_for_repo(repo: Path) -> str:
     """The audit prompt with the target repo path interpolated.
 
     When invoked mid-session via `/audit`, the agent's cwd is the user's
-    workspace, not the hermesv2 repo. Embedding the absolute path here
+    workspace, not the joshv1 repo. Embedding the absolute path here
     lets the agent use Read/Grep with full paths regardless of cwd.
     """
     return f"{AUDIT_PROMPT}\nThe repo to audit is at: `{repo}`\n"

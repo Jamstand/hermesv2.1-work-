@@ -1,6 +1,6 @@
 """Discord bot adapter using discord.py.
 
-Requires `pip install 'hermesv2[discord]'`. Needs a bot token from the Discord
+Requires `pip install 'joshv1[discord]'`. Needs a bot token from the Discord
 Developer Portal with the MESSAGE_CONTENT privileged intent enabled.
 
 The bot responds to direct messages and to @mentions in channels. Per-user
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import sys
 
-from hermesv2.agent import Agent
-from hermesv2.config import Config
+from joshv1.agent import Agent
+from joshv1.config import Config
 
 
 async def run_discord_bot(config: Config) -> None:
@@ -21,7 +21,7 @@ async def run_discord_bot(config: Config) -> None:
         import discord
     except ImportError:
         print(
-            "Discord support requires the discord extras: pip install 'hermesv2[discord]'",
+            "Discord support requires the discord extras: pip install 'joshv1[discord]'",
             file=sys.stderr,
         )
         sys.exit(1)

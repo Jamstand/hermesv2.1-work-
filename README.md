@@ -1,4 +1,4 @@
-# Hermes v2
+# Josh v1
 
 A personal AI agent for work, built on the **Claude Agent SDK** so it uses your **Claude Max (or Pro) subscription** via OAuth — no API key, no per-token billing.
 
@@ -12,7 +12,7 @@ A personal AI agent for work, built on the **Claude Agent SDK** so it uses your 
 
 ## What it does
 
-- **Local CLI / automation** — interactive REPL (`hermesv2 chat`) and one-shot (`hermesv2 run`).
+- **Local CLI / automation** — interactive REPL (`joshv1 chat`) and one-shot (`joshv1 run`).
 - **Slack bot** — DMs and @mentions, per-user conversation threads.
 - **Discord bot** — DMs and @mentions, same behavior.
 - **Built-in tools** — Claude Code's Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch all come for free.
@@ -36,12 +36,12 @@ Then Python 3.10+ and pip:
 sudo apt install -y python3-venv python3-pip python-is-python3 git
 ```
 
-### 2. Install hermesv2
+### 2. Install joshv1
 
 ```sh
-git clone https://github.com/jamstand/hermesv2.1-work-.git hermesv2
-cd hermesv2
-git checkout claude/hermes-v2-personal-ECfgW
+git clone https://github.com/jamstand/joshv1-work-.git joshv1
+cd joshv1
+git checkout claude/josh-v1-personal-ECfgW
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[all]"
@@ -52,7 +52,7 @@ cp config.example.yaml config.yaml   # optional — defaults are sensible
 ### 3. Verify
 
 ```sh
-hermesv2 doctor
+joshv1 doctor
 ```
 
 Should show green checks for Claude CLI installed, runnable, auth state, config loaded, and workspace writable.
@@ -60,51 +60,51 @@ Should show green checks for Claude CLI installed, runnable, auth state, config 
 ## Use
 
 ```sh
-hermesv2                                # interactive REPL (default)
-hermesv2 chat                           # explicit
-hermesv2 chat --session work            # named, resumable session
-hermesv2 run "list this directory"      # one-shot
-echo "summarize this" | cat README.md - | hermesv2 run
-hermesv2 sessions                       # list saved sessions
-hermesv2 sessions --delete <id>         # delete one
-hermesv2 update                         # git pull
-hermesv2 doctor                         # diagnose (now actually pings claude)
+joshv1                                # interactive REPL (default)
+joshv1 chat                           # explicit
+joshv1 chat --session work            # named, resumable session
+joshv1 run "list this directory"      # one-shot
+echo "summarize this" | cat README.md - | joshv1 run
+joshv1 sessions                       # list saved sessions
+joshv1 sessions --delete <id>         # delete one
+joshv1 update                         # git pull
+joshv1 doctor                         # diagnose (now actually pings claude)
 
-hermesv2 index ~/notes                  # FTS5-index a directory of text/md files
-hermesv2 search "deploy"                # search the indexed corpus
+joshv1 index ~/notes                  # FTS5-index a directory of text/md files
+joshv1 search "deploy"                # search the indexed corpus
 
-hermesv2 voice recording.m4a            # transcribe an audio file (needs [voice] extra)
-hermesv2 voice recording.m4a --run      # transcribe then run as a prompt
+joshv1 voice recording.m4a            # transcribe an audio file (needs [voice] extra)
+joshv1 voice recording.m4a --run      # transcribe then run as a prompt
 
-hermesv2 slack                          # needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
-hermesv2 discord                        # needs DISCORD_BOT_TOKEN
+joshv1 slack                          # needs SLACK_BOT_TOKEN + SLACK_APP_TOKEN
+joshv1 discord                        # needs DISCORD_BOT_TOKEN
 ```
 
 ## Persistent memory
 
-Hermesv2 reads every `*.md` file under `~/.hermes-memory/` at the start of each turn and appends them to the system prompt inside a `<memory>` block. `USER.md` is auto-created on first run and the agent updates it via the Write tool when it learns durable facts about you (preferences, ongoing projects, decisions). This is the Honcho-style user-modeling layer: persistent context, zero round-trips, all local.
+Joshv1 reads every `*.md` file under `~/.josh-memory/` at the start of each turn and appends them to the system prompt inside a `<memory>` block. `USER.md` is auto-created on first run and the agent updates it via the Write tool when it learns durable facts about you (preferences, ongoing projects, decisions). This is the Honcho-style user-modeling layer: persistent context, zero round-trips, all local.
 
-Edit any file in `~/.hermes-memory/` to seed context manually.
+Edit any file in `~/.josh-memory/` to seed context manually.
 
 ## Notes search (FTS5)
 
 ```sh
-hermesv2 index ~/notes               # walks recursively for *.md *.txt *.markdown *.org *.rst
-hermesv2 search "kubernetes ingress"
-hermesv2 search "kubernetes ingress" --json   # pipe-friendly
+joshv1 index ~/notes               # walks recursively for *.md *.txt *.markdown *.org *.rst
+joshv1 search "kubernetes ingress"
+joshv1 search "kubernetes ingress" --json   # pipe-friendly
 ```
 
-Backed by SQLite FTS5 (stdlib, no extra deps). Returns top BM25-ranked snippets. For semantic ranking, pipe the JSON output into `hermesv2 run "rank these by relevance to <topic>: ..."`.
+Backed by SQLite FTS5 (stdlib, no extra deps). Returns top BM25-ranked snippets. For semantic ranking, pipe the JSON output into `joshv1 run "rank these by relevance to <topic>: ..."`.
 
 ## Voice input
 
 ```sh
 pip install -e ".[voice]"           # one-time: pulls faster-whisper
-hermesv2 voice meeting.m4a          # prints transcript
-hermesv2 voice meeting.m4a --run    # transcribe then send to agent
+joshv1 voice meeting.m4a          # prints transcript
+joshv1 voice meeting.m4a --run    # transcribe then send to agent
 ```
 
-WSL note: live mic capture is fragile because of PulseAudio passthrough. Easier path: record on Windows with the built-in Voice Recorder app (saves `.m4a` to `~/Documents/Sound Recordings/`), then `hermesv2 voice /mnt/c/Users/.../recording.m4a`.
+WSL note: live mic capture is fragile because of PulseAudio passthrough. Easier path: record on Windows with the built-in Voice Recorder app (saves `.m4a` to `~/Documents/Sound Recordings/`), then `joshv1 voice /mnt/c/Users/.../recording.m4a`.
 
 In the chat REPL, type `/help` for the full slash-command list:
 
@@ -126,10 +126,10 @@ In the chat REPL, type `/help` for the full slash-command list:
 Claude Code persists sessions automatically. Resume across restarts with:
 
 ```sh
-hermesv2 chat --session work-2026
+joshv1 chat --session work-2026
 ```
 
-The first time, this creates a session named `work-2026`. Next time you launch with the same name, it picks up where you left off. List all with `hermesv2 sessions`.
+The first time, this creates a session named `work-2026`. Next time you launch with the same name, it picks up where you left off. List all with `joshv1 sessions`.
 
 ## MCP servers
 
@@ -171,9 +171,9 @@ agent:
   effort: high                  # low | medium | high | xhigh | max
   thinking: adaptive            # adaptive | disabled
   permission_mode: default      # default | acceptEdits | plan | bypassPermissions
-  workspace_dir: ~/hermes-workspace
+  workspace_dir: ~/josh-workspace
   system_prompt: |
-    You are Hermes v2 ...
+    You are Josh v1 ...
 ```
 
 **`permission_mode`** matters most:
@@ -200,7 +200,7 @@ echo 'export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt' >> ~/.bashr
 ## Layout
 
 ```
-hermesv2/
+joshv1/
 ├── agent.py              # ClaudeSDKClient wrapper + event types
 ├── cli.py                # click commands: chat / run / doctor / slack / discord
 ├── config.py             # YAML + env config

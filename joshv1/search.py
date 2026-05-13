@@ -2,12 +2,12 @@
 
 No heavy ML deps — FTS5 is built into Python's stdlib sqlite3. It's full-text,
 not literally semantic, but the agent itself supplies the semantic ranking
-when you pipe top-K hits into a `hermesv2 run` follow-up query.
+when you pipe top-K hits into a `joshv1 run` follow-up query.
 
 CLI:
-    hermesv2 index <directory>       # walk and index *.md/*.txt files
-    hermesv2 search "query"          # return top matches
-    hermesv2 search "query" --json   # machine-readable
+    joshv1 index <directory>       # walk and index *.md/*.txt files
+    joshv1 search "query"          # return top matches
+    joshv1 search "query" --json   # machine-readable
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-DB_PATH = Path.home() / ".hermes-memory" / "notes.db"
+DB_PATH = Path.home() / ".josh-memory" / "notes.db"
 TEXT_EXTS = {".md", ".txt", ".markdown", ".org", ".rst"}
 
 

@@ -6,7 +6,7 @@ audio file as input sidesteps all of that — record with Windows Voice
 Recorder, drop the .wav/.m4a/.mp3 in, transcribe.
 
 Install:
-    pip install 'hermesv2[voice]'      # pulls faster-whisper
+    pip install 'joshv1[voice]'      # pulls faster-whisper
     # Models download lazily on first run into ~/.cache/huggingface/hub.
 """
 
@@ -27,7 +27,7 @@ def _get_model(name: str):
         from faster_whisper import WhisperModel
     except ImportError as e:
         raise RuntimeError(
-            "faster-whisper is not installed. Run: pip install 'hermesv2[voice]'"
+            "faster-whisper is not installed. Run: pip install 'joshv1[voice]'"
         ) from e
     model = WhisperModel(name, device="cpu", compute_type="int8")
     _MODEL_CACHE[name] = model

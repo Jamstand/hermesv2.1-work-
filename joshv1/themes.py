@@ -1,12 +1,12 @@
-"""Themes for hermesv2.
+"""Themes for joshv1.
 
 Each theme is a palette of semantic color slots. They map to Rich style
-names (`hermes.*` and `markdown.*`) via build_theme(), so swapping a theme
+names (`josh.*` and `markdown.*`) via build_theme(), so swapping a theme
 swaps every color in the TUI without touching the code that emits styled
 text.
 
 Built-in palettes are listed in PALETTES. The active palette is persisted
-in ~/.hermes-memory/theme so the choice survives restarts.
+in ~/.josh-memory/theme so the choice survives restarts.
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from rich.theme import Theme
 class Palette:
     """A complete theme palette.
 
-    Slot meanings (mapped to hermes.* style names downstream):
+    Slot meanings (mapped to josh.* style names downstream):
       primary    — banner, panel border, panel title, primary labels
-      secondary  — prompt chevron, hermes-label, spinner, **bold** highlights
+      secondary  — prompt chevron, josh-label, spinner, **bold** highlights
       warm       — logo, italic emphasis
       highlight  — session ID, current marker, slash-command names
       success    — section headers ("Available Tools"), ok states
@@ -137,7 +137,7 @@ PALETTES: dict[str, Palette] = {
 }
 
 DEFAULT_THEME = "catppuccin-mocha"
-_THEME_FILE = Path.home() / ".hermes-memory" / "theme"
+_THEME_FILE = Path.home() / ".josh-memory" / "theme"
 
 
 def list_themes() -> list[Palette]:
@@ -166,36 +166,36 @@ def save_active_theme(name: str) -> None:
 
 
 def build_theme(p: Palette) -> Theme:
-    """Map a palette to a Rich Theme with both hermes.* and markdown.* styles."""
+    """Map a palette to a Rich Theme with both josh.* and markdown.* styles."""
     return Theme({
-        # Hermes-specific semantic styles. tui.py + cli.py use these names
+        # Josh-specific semantic styles. tui.py + cli.py use these names
         # instead of hex codes, so a theme swap re-paints the entire UI.
-        "hermes.banner":         f"bold {p.primary}",
-        "hermes.title":          f"bold {p.primary}",
-        "hermes.label.you":      f"bold {p.primary}",
-        "hermes.label.hermes":   f"bold {p.secondary}",
-        "hermes.chevron":        f"bold {p.secondary}",
-        "hermes.bar":            f"bold {p.primary}",
-        "hermes.spinner":        f"bold {p.secondary}",
-        "hermes.logo":           p.warm,
-        "hermes.session":        f"bold {p.highlight}",
-        "hermes.session.marker": f"bold {p.info2}",
-        "hermes.section":        f"bold {p.success}",
-        "hermes.success":        p.success,
-        "hermes.info":           p.info,
-        "hermes.info2":          p.info2,
-        "hermes.warm":           p.warm,
-        "hermes.secondary":      p.secondary,
-        "hermes.highlight":      p.highlight,
-        "hermes.highlight.bold": f"bold {p.highlight}",
-        "hermes.error":          p.error,
-        "hermes.error.bold":     f"bold {p.error}",
-        "hermes.text":           p.text,
-        "hermes.dim":            p.dim,
-        "hermes.tool":           p.info,
-        "hermes.tool.error":     p.error,
-        "hermes.tool.ok":        p.success,
-        "hermes.border":         p.primary,
+        "josh.banner":         f"bold {p.primary}",
+        "josh.title":          f"bold {p.primary}",
+        "josh.label.you":      f"bold {p.primary}",
+        "josh.label.josh":     f"bold {p.secondary}",
+        "josh.chevron":        f"bold {p.secondary}",
+        "josh.bar":            f"bold {p.primary}",
+        "josh.spinner":        f"bold {p.secondary}",
+        "josh.logo":           p.warm,
+        "josh.session":        f"bold {p.highlight}",
+        "josh.session.marker": f"bold {p.info2}",
+        "josh.section":        f"bold {p.success}",
+        "josh.success":        p.success,
+        "josh.info":           p.info,
+        "josh.info2":          p.info2,
+        "josh.warm":           p.warm,
+        "josh.secondary":      p.secondary,
+        "josh.highlight":      p.highlight,
+        "josh.highlight.bold": f"bold {p.highlight}",
+        "josh.error":          p.error,
+        "josh.error.bold":     f"bold {p.error}",
+        "josh.text":           p.text,
+        "josh.dim":            p.dim,
+        "josh.tool":           p.info,
+        "josh.tool.error":     p.error,
+        "josh.tool.ok":        p.success,
+        "josh.border":         p.primary,
         # Rich Markdown overrides — these are what makes **Persistent memory**
         # mid-sentence pop as bold pink/secondary.
         "markdown.h1":          f"bold {p.primary}",

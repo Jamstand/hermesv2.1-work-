@@ -1,4 +1,4 @@
-"""Hermes v2 CLI: `hermesv2 [chat] | run | doctor | slack | discord | update`."""
+"""Josh v1 CLI: `joshv1 [chat] | run | doctor | slack | discord | update`."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.text import Text
 
-from hermesv2 import themes, tui
-from hermesv2.agent import (
+from joshv1 import themes, tui
+from joshv1.agent import (
     Agent,
     TextDelta,
     ThinkingDelta,
@@ -30,8 +30,8 @@ from hermesv2.agent import (
     ToolResult,
     TurnDone,
 )
-from hermesv2.config import VALID_EFFORTS, AgentSettings, Config, load_config, save_active_effort
-from hermesv2.providers import PROVIDER_PRESETS, OpenAICompatProvider
+from joshv1.config import VALID_EFFORTS, AgentSettings, Config, load_config, save_active_effort
+from joshv1.providers import PROVIDER_PRESETS, OpenAICompatProvider
 
 
 def build_backend(settings: AgentSettings, cwd: str | Path | None = None,
@@ -51,8 +51,8 @@ def build_backend(settings: AgentSettings, cwd: str | Path | None = None,
         f"Valid: claude, {', '.join(PROVIDER_PRESETS)}"
     )
 
-# Active theme is loaded from ~/.hermes-memory/theme (set via `/theme <name>`).
-# The Console is built with a Rich Theme that maps every `hermes.*` and
+# Active theme is loaded from ~/.josh-memory/theme (set via `/theme <name>`).
+# The Console is built with a Rich Theme that maps every `josh.*` and
 # `markdown.*` style name to the palette's hex codes — so swapping the
 # active palette repaints the entire UI without touching tui.py or cli.py.
 ACTIVE_PALETTE = themes.load_active_palette()
@@ -69,35 +69,35 @@ def _render_map_panel(result: dict[str, Any]) -> None:
     if result.get("place"):
         title = Text()
         title.append(" ", style="dim")
-        title.append(result["place"][:80], style="hermes.title")
+        title.append(result["place"][:80], style="josh.title")
         if result.get("lat") is not None and result.get("lon") is not None:
             title.append(
                 f"  · {result['lat']:.4f}, {result['lon']:.4f}",
                 style="dim",
             )
         if result.get("zoom") is not None:
-            title.append(f"  · z{result['zoom']}", style="hermes.warm")
+            title.append(f"  · z{result['zoom']}", style="josh.warm")
     else:
-        title = Text(" map ", style="hermes.title")
+        title = Text(" map ", style="josh.title")
 
     if result.get("braille"):
         from rich.panel import Panel as RPanel
         panel = RPanel(
-            Text(result["braille"], style="hermes.title"),
+            Text(result["braille"], style="josh.title"),
             title=title,
-            border_style="hermes.border",
+            border_style="josh.border",
             padding=(0, 1),
         )
         console.print(panel)
     else:
         if result.get("place"):
-            console.print(f"  [hermes.info]{result['place']}[/]")
+            console.print(f"  [josh.info]{result['place']}[/]")
         if result.get("lat") is not None:
             console.print(
-                f"  [dim]coords:[/] [hermes.info]{result['lat']:.4f}, {result['lon']:.4f}[/]"
+                f"  [dim]coords:[/] [josh.info]{result['lat']:.4f}, {result['lon']:.4f}[/]"
             )
         if result.get("error"):
-            console.print(f"  [hermes.highlight]map render:[/] [dim]{result['error']}[/]")
+            console.print(f"  [josh.highlight]map render:[/] [dim]{result['error']}[/]")
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +106,8 @@ def _render_map_panel(result: dict[str, Any]) -> None:
 
 
 # prompt-toolkit needs real hex codes (it doesn't understand Rich's
-# `hermes.*` style names), so this is generated from the active palette
-# at import time. To pick up a theme change, restart hermesv2.
+# `josh.*` style names), so this is generated from the active palette
+# at import time. To pick up a theme change, restart joshv1.
 DROPDOWN_STYLE = Style.from_dict(themes.build_dropdown_style_dict(ACTIVE_PALETTE))
 
 
@@ -142,7 +142,7 @@ class SlashCommandCompleter(Completer):
 
 
 def _render_event_plain(event: object) -> None:
-    """Compact, pipe-friendly rendering for `hermesv2 run`."""
+    """Compact, pipe-friendly rendering for `joshv1 run`."""
     if isinstance(event, TextDelta):
         console.print(event.text, end="", soft_wrap=True, highlight=False)
     elif isinstance(event, ThinkingDelta):
@@ -153,7 +153,7 @@ def _render_event_plain(event: object) -> None:
         preview = str(event.input)
         if len(preview) > 200:
             preview = preview[:200] + "..."
-        console.print(f"\n[hermes.info]→ {event.name}[/] [dim]{preview}[/]")
+        console.print(f"\n[josh.info]→ {event.name}[/] [dim]{preview}[/]")
     elif isinstance(event, ToolResult):
         color = "red" if event.is_error else "green"
         preview = event.output if len(event.output) < 400 else event.output[:400] + "..."
@@ -166,7 +166,7 @@ def _render_event_plain(event: object) -> None:
 
 
 def _render_event_tui(event: object, stats: SessionStats) -> None:
-    """Fancy rendering for `hermesv2 chat`. Updates running stats too."""
+    """Fancy rendering for `joshv1 chat`. Updates running stats too."""
     if isinstance(event, TextDelta):
         tui.render_text_delta(console, event.text)
     elif isinstance(event, ThinkingDelta):
@@ -226,7 +226,7 @@ class SessionStats:
 @click.version_option()
 @click.pass_context
 def main(ctx: click.Context, config_path: str | None) -> None:
-    """Hermes v2 — personal agent on top of Claude Code (uses your Max subscription)."""
+    """Josh v1 — personal agent on top of Claude Code (uses your Max subscription)."""
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
     if ctx.invoked_subcommand is None:
@@ -243,7 +243,7 @@ def run(ctx: click.Context, prompt: tuple[str, ...]) -> None:
     elif not sys.stdin.isatty():
         message = sys.stdin.read().strip()
     else:
-        console.print("[hermes.error]No prompt given. Pass one as args or pipe via stdin.[/]")
+        console.print("[josh.error]No prompt given. Pass one as args or pipe via stdin.[/]")
         sys.exit(2)
 
     cfg = load_config(ctx.obj.get("config_path"))
@@ -433,20 +433,20 @@ async def _handle_slash(
         return "redraw"
     if cmd == "/title":
         if not arg:
-            console.print("  [hermes.highlight]usage:[/] /title <name>")
+            console.print("  [josh.highlight]usage:[/] /title <name>")
             return None
         try:
             from claude_agent_sdk import rename_session
             rename_session(session_id, arg)
-            console.print(f"  [hermes.success]session renamed to[/] [hermes.info]{arg}[/]")
+            console.print(f"  [josh.success]session renamed to[/] [josh.info]{arg}[/]")
         except Exception as e:  # noqa: BLE001
-            console.print(f"[hermes.error]rename failed: {e}[/]")
+            console.print(f"[josh.error]rename failed: {e}[/]")
         return None
     if cmd == "/history":
         if not user_history:
             console.print("[dim]no user prompts yet in this session.[/]")
             return None
-        console.print("\n[hermes.title]Your prompts this session[/]")
+        console.print("\n[josh.title]Your prompts this session[/]")
         for i, prompt in enumerate(user_history[-20:], 1):
             short = prompt if len(prompt) < 80 else prompt[:80] + "..."
             console.print(f"  [dim]{i:>2}.[/] {short}")
@@ -458,7 +458,7 @@ async def _handle_slash(
         return await _set_perm(agent, PERMISSION_ALIASES[cmd])
     if cmd == "/permission":
         if not arg:
-            console.print("  [hermes.highlight]usage:[/] /permission <default|acceptEdits|plan|bypassPermissions>")
+            console.print("  [josh.highlight]usage:[/] /permission <default|acceptEdits|plan|bypassPermissions>")
             return None
         return await _set_perm(agent, arg)
 
@@ -471,20 +471,20 @@ async def _handle_slash(
 
     # --- Self-audit --------------------------------------------------------
     if cmd == "/audit":
-        from hermesv2 import audit as audit_mod
+        from joshv1 import audit as audit_mod
         repo = audit_mod.find_hermes_repo()
         if repo is None:
-            console.print("[hermes.error]Couldn't find the hermesv2 repo on disk.[/]")
+            console.print("[josh.error]Couldn't find the joshv1 repo on disk.[/]")
             return None
-        console.print(f"  [dim]auditing[/] [hermes.info]{repo}[/]")
+        console.print(f"  [dim]auditing[/] [josh.info]{repo}[/]")
         return ("retry", audit_mod.prompt_for_repo(repo))
 
     # --- Ensemble: fan out to multiple models, synthesize one answer -------
     if cmd == "/ensemble":
         if not arg:
-            console.print("  [hermes.highlight]usage:[/] /ensemble <prompt>")
+            console.print("  [josh.highlight]usage:[/] /ensemble <prompt>")
             return None
-        from hermesv2 import ensemble as ens_mod
+        from joshv1 import ensemble as ens_mod
 
         console.print(
             f"  [dim]polling {len(ens_mod.DEFAULT_ENSEMBLE)} models in parallel...[/]"
@@ -492,9 +492,9 @@ async def _handle_slash(
 
         def _on_draft(member, draft):
             if draft.success:
-                console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/] [dim]({len(draft.text)} chars)[/]")
+                console.print(f"  [josh.success]✓[/] [josh.info]{member.model}[/] [dim]({len(draft.text)} chars)[/]")
             else:
-                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/]")
+                console.print(f"  [josh.error]✗[/] [josh.info]{member.model}[/]")
                 console.print(f"      [dim]error: {draft.error!r}[/]")
                 if draft.text:
                     console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
@@ -504,7 +504,7 @@ async def _handle_slash(
         )
         n_ok = sum(1 for d in drafts if d.success)
         console.print(
-            f"\n[hermes.title]Synthesized answer[/] "
+            f"\n[josh.title]Synthesized answer[/] "
             f"[dim](from {n_ok}/{len(drafts)} drafts)[/]\n"
         )
         console.print(answer)
@@ -514,39 +514,39 @@ async def _handle_slash(
     # --- Image / screenshot ------------------------------------------------
     if cmd == "/img":
         if not arg:
-            console.print("  [hermes.highlight]usage:[/] /img <path> [question]")
+            console.print("  [josh.highlight]usage:[/] /img <path> [question]")
             return None
         path_part, _, question = arg.partition(" ")
         path = Path(path_part).expanduser()
         if not path.is_file():
-            console.print(f"[hermes.error]not a file: {path}[/]")
+            console.print(f"[josh.error]not a file: {path}[/]")
             return None
         question = question.strip() or "Describe what's in this image in detail."
         full_prompt = f"Read the image at `{path}` and answer: {question}"
-        console.print(f"  [dim]attaching[/] [hermes.info]{path}[/]")
+        console.print(f"  [dim]attaching[/] [josh.info]{path}[/]")
         return ("retry", full_prompt)
 
     if cmd == "/screenshot":
         latest = tui.find_recent_screenshot()
         if latest is None:
             console.print(
-                "[hermes.error]No recent screenshot found.[/] [dim]Looked under "
+                "[josh.error]No recent screenshot found.[/] [dim]Looked under "
                 "/mnt/c/Users/*/Pictures/Screenshots and ~/Pictures.[/]"
             )
             return None
         question = arg.strip() or "Describe what's in this screenshot in detail."
         full_prompt = f"Read the image at `{latest}` and answer: {question}"
-        console.print(f"  [dim]using[/] [hermes.info]{latest.name}[/] [dim]from {latest.parent}[/]")
+        console.print(f"  [dim]using[/] [josh.info]{latest.name}[/] [dim]from {latest.parent}[/]")
         return ("retry", full_prompt)
 
     # --- Maps (geocode + stitched braille map + browser open + agent ask) ---
     if cmd == "/maps":
         if not arg:
-            console.print("  [hermes.highlight]usage:[/] /maps <place or query> [z<N>]")
+            console.print("  [josh.highlight]usage:[/] /maps <place or query> [z<N>]")
             return None
         import urllib.parse
 
-        from hermesv2 import maps as mapsmod
+        from joshv1 import maps as mapsmod
 
         # Allow "z<N>" anywhere in the query to override zoom (e.g. /maps Bayside z17)
         zoom = 15
@@ -561,7 +561,7 @@ async def _handle_slash(
         encoded = urllib.parse.quote_plus(query)
         url = f"https://www.google.com/maps/search/?api=1&query={encoded}"
 
-        console.print(f"  [dim]searching maps for[/] [hermes.info]{query}[/] [dim](z{zoom})[/]...")
+        console.print(f"  [dim]searching maps for[/] [josh.info]{query}[/] [dim](z{zoom})[/]...")
         term_w = max(40, min(console.size.width - 6, 90))
         result = mapsmod.render_map(query, zoom=zoom, cols=term_w, rows=18, tiles=2)
 
@@ -579,9 +579,9 @@ async def _handle_slash(
 
         opened = _open_in_browser(url)
         if opened:
-            console.print(f"  [hermes.success]opened in browser:[/] [hermes.info]{url}[/]")
+            console.print(f"  [josh.success]opened in browser:[/] [josh.info]{url}[/]")
         else:
-            console.print(f"  [dim]copy and open in browser:[/] [hermes.info]{url}[/]")
+            console.print(f"  [dim]copy and open in browser:[/] [josh.info]{url}[/]")
         console.print(
             "  [dim]/zoomin · /zoomout to re-render at a different zoom level[/]"
         )
@@ -597,7 +597,7 @@ async def _handle_slash(
     if cmd in ("/zoomin", "/zoomout"):
         if not _LAST_MAP:
             console.print(
-                "  [hermes.error]no map yet[/] [dim]— run /maps <query> first[/]"
+                "  [josh.error]no map yet[/] [dim]— run /maps <query> first[/]"
             )
             return None
         delta = 1 if cmd == "/zoomin" else -1
@@ -605,10 +605,10 @@ async def _handle_slash(
         if new_zoom == _LAST_MAP["zoom"]:
             console.print(f"  [dim]already at zoom limit (z{new_zoom})[/]")
             return None
-        from hermesv2 import maps as mapsmod
+        from joshv1 import maps as mapsmod
         term_w = max(40, min(console.size.width - 6, 90))
         console.print(
-            f"  [dim]re-rendering[/] [hermes.info]{_LAST_MAP['place'][:60]}[/] "
+            f"  [dim]re-rendering[/] [josh.info]{_LAST_MAP['place'][:60]}[/] "
             f"[dim]at z{new_zoom}...[/]"
         )
         result = mapsmod.render_map_at(
@@ -625,22 +625,22 @@ async def _handle_slash(
             _print_theme_list()
             return None
         if arg not in themes.PALETTES:
-            console.print(f"  [hermes.error]unknown theme:[/] [hermes.info]{arg}[/]")
+            console.print(f"  [josh.error]unknown theme:[/] [josh.info]{arg}[/]")
             console.print(f"  [dim]available:[/] {', '.join(themes.PALETTES)}")
             return None
         try:
             themes.save_active_theme(arg)
         except Exception as e:  # noqa: BLE001
-            console.print(f"  [hermes.error]failed to save theme:[/] {e}")
+            console.print(f"  [josh.error]failed to save theme:[/] {e}")
             return None
         # Hot-swap Rich's theme so the welcome panel + agent replies
         # pick up the new colors immediately.
         new_palette = themes.get_palette(arg)
         console.push_theme(themes.build_theme(new_palette))
         console.print(
-            f"  [hermes.success]theme switched to[/] [hermes.session]{arg}[/]  "
+            f"  [josh.success]theme switched to[/] [josh.session]{arg}[/]  "
             f"{themes.render_theme_swatch(new_palette)}\n"
-            f"  [dim]Restart hermesv2 to also update the prompt + dropdown.[/]"
+            f"  [dim]Restart joshv1 to also update the prompt + dropdown.[/]"
         )
         return None
 
@@ -648,11 +648,11 @@ async def _handle_slash(
     if cmd == "/plugin":
         if not arg:
             console.print(
-                "  [hermes.highlight]usage:[/] /plugin <install|list|uninstall|update|enable|disable|marketplace> [args]\n"
+                "  [josh.highlight]usage:[/] /plugin <install|list|uninstall|update|enable|disable|marketplace> [args]\n"
                 "  [dim]examples:[/]\n"
-                "    [hermes.info]/plugin install github@claude-plugins-official[/]\n"
-                "    [hermes.info]/plugin marketplace add anthropics/claude-plugins[/]\n"
-                "    [hermes.info]/plugin list[/]"
+                "    [josh.info]/plugin install github@claude-plugins-official[/]\n"
+                "    [josh.info]/plugin marketplace add anthropics/claude-plugins[/]\n"
+                "    [josh.info]/plugin list[/]"
             )
             return None
         _shell_claude_plugin(arg.split())
@@ -660,45 +660,45 @@ async def _handle_slash(
 
     # --- Workspace ---------------------------------------------------------
     if cmd == "/cwd":
-        console.print(f"  [dim]workspace[/]   [hermes.info]{cfg.agent.workspace_dir}[/]")
+        console.print(f"  [dim]workspace[/]   [josh.info]{cfg.agent.workspace_dir}[/]")
         if cfg.agent.add_dirs:
             for extra in cfg.agent.add_dirs:
-                console.print(f"  [dim]extra     [/]   [hermes.info]{extra}[/]")
+                console.print(f"  [dim]extra     [/]   [josh.info]{extra}[/]")
         return None
     if cmd == "/cd":
         if not arg:
-            console.print("  [hermes.highlight]usage:[/] /cd <path>")
+            console.print("  [josh.highlight]usage:[/] /cd <path>")
             return None
         new_path = str(Path(arg).expanduser())
         if new_path not in cfg.agent.add_dirs:
             cfg.agent.add_dirs.append(new_path)
         console.print(
-            f"  [hermes.success]added[/] [hermes.info]{new_path}[/] [dim]to allowed dirs.[/] "
-            "[hermes.highlight]Use /new to start a fresh session and let Claude see it.[/]"
+            f"  [josh.success]added[/] [josh.info]{new_path}[/] [dim]to allowed dirs.[/] "
+            "[josh.highlight]Use /new to start a fresh session and let Claude see it.[/]"
         )
         return None
 
     # --- Sysprompt ---------------------------------------------------------
     if cmd == "/sysprompt":
-        console.print(f"\n[hermes.title]System prompt:[/]\n[dim]{cfg.agent.system_prompt}[/]\n")
+        console.print(f"\n[josh.title]System prompt:[/]\n[dim]{cfg.agent.system_prompt}[/]\n")
         return None
 
     # --- Branch / fork -----------------------------------------------------
     if cmd in ("/branch", "/fork"):
         if not arg:
-            console.print(f"  [hermes.highlight]usage:[/] {cmd} <new-name>")
+            console.print(f"  [josh.highlight]usage:[/] {cmd} <new-name>")
             return None
         try:
             from claude_agent_sdk import fork_session
             result = fork_session(session_id, title=arg)
             new_id = getattr(result, "session_id", arg)
             console.print(
-                f"  [hermes.success]forked[/] from [dim]{session_id[:16]}...[/] "
-                f"to [hermes.info]{new_id}[/]"
+                f"  [josh.success]forked[/] from [dim]{session_id[:16]}...[/] "
+                f"to [josh.info]{new_id}[/]"
             )
             return ("session", new_id)
         except Exception as e:  # noqa: BLE001
-            console.print(f"[hermes.error]fork failed: {e}[/]")
+            console.print(f"[josh.error]fork failed: {e}[/]")
             return None
 
     # --- Compress (best-effort) -------------------------------------------
@@ -733,28 +733,28 @@ async def _handle_slash(
                 console.print("  [dim](no change)[/]")
                 return None
             if chosen == current_model:
-                console.print(f"  [dim]already on[/] [hermes.info]{chosen}[/]")
+                console.print(f"  [dim]already on[/] [josh.info]{chosen}[/]")
                 return None
             arg = chosen
         if isinstance(agent, Agent):
             if agent._client is None:
-                console.print("[hermes.error]Agent not connected.[/]")
+                console.print("[josh.error]Agent not connected.[/]")
                 return None
             try:
                 await agent._client.set_model(arg)
-                console.print(f"  [hermes.success]switched model to[/] [hermes.info]{arg}[/]")
+                console.print(f"  [josh.success]switched model to[/] [josh.info]{arg}[/]")
                 return ("model", arg)
             except Exception as e:  # noqa: BLE001
-                console.print(f"[hermes.error]Failed to switch model: {e}[/]")
+                console.print(f"[josh.error]Failed to switch model: {e}[/]")
                 return None
         # Non-Claude backend: update settings and reconnect.
         agent.settings.model = arg
         try:
             await agent.reconfigure()
         except Exception as e:  # noqa: BLE001
-            console.print(f"[hermes.error]Failed to switch model: {e}[/]")
+            console.print(f"[josh.error]Failed to switch model: {e}[/]")
             return None
-        console.print(f"  [hermes.success]switched model to[/] [hermes.info]{arg}[/]")
+        console.print(f"  [josh.success]switched model to[/] [josh.info]{arg}[/]")
         return ("model", arg)
     if cmd == "/effort":
         # No-arg form opens the picker dialog. Pass an effort name to skip it.
@@ -764,25 +764,25 @@ async def _handle_slash(
                 console.print("  [dim](no change)[/]")
                 return None
             if chosen == cfg.agent.effort:
-                console.print(f"  [dim]already on[/] [hermes.info]{chosen}[/]")
+                console.print(f"  [dim]already on[/] [josh.info]{chosen}[/]")
                 return None
             arg = chosen
         if arg not in VALID_EFFORTS:
-            console.print(f"  [hermes.error]unknown effort:[/] [hermes.info]{arg}[/]")
+            console.print(f"  [josh.error]unknown effort:[/] [josh.info]{arg}[/]")
             console.print(f"  [dim]valid:[/] {', '.join(VALID_EFFORTS)}")
             return None
         if not isinstance(agent, Agent):
             console.print("  [dim]effort is a Claude-only setting; non-Claude providers don't use it.[/]")
             return None
         if agent._client is None:
-            console.print("[hermes.error]Agent not connected.[/]")
+            console.print("[josh.error]Agent not connected.[/]")
             return None
         prev = cfg.agent.effort
         cfg.agent.effort = arg
         try:
             save_active_effort(arg, cfg.agent.memory_dir)
         except Exception as e:  # noqa: BLE001
-            console.print(f"  [hermes.error]failed to save effort:[/] {e}")
+            console.print(f"  [josh.error]failed to save effort:[/] {e}")
             cfg.agent.effort = prev
             return None
         console.print(f"  [dim]reconfiguring agent ({prev} → {arg})...[/]")
@@ -790,9 +790,9 @@ async def _handle_slash(
         try:
             await agent.reconfigure()
         except Exception as e:  # noqa: BLE001
-            console.print(f"  [hermes.error]reconnect failed:[/] {e}")
+            console.print(f"  [josh.error]reconnect failed:[/] {e}")
             return None
-        console.print(f"  [hermes.success]switched effort to[/] [hermes.info]{arg}[/]")
+        console.print(f"  [josh.success]switched effort to[/] [josh.info]{arg}[/]")
         return None
     if cmd == "/update":
         await _run_update_async()
@@ -801,7 +801,7 @@ async def _handle_slash(
         await _list_sessions_async()
         return None
 
-    console.print(f"[hermes.error]Unknown command: {cmd}. Type /help for a list.[/]")
+    console.print(f"[josh.error]Unknown command: {cmd}. Type /help for a list.[/]")
     return None
 
 
@@ -810,7 +810,7 @@ async def _list_sessions_async() -> None:
     try:
         sessions = await asyncio.to_thread(list_sessions, limit=20)
     except Exception as e:  # noqa: BLE001
-        console.print(f"[hermes.error]Failed to list sessions: {e}[/]")
+        console.print(f"[josh.error]Failed to list sessions: {e}[/]")
         return
     if not sessions:
         console.print("[dim]No saved sessions yet.[/]")
@@ -825,7 +825,7 @@ async def _set_perm(agent, mode: str) -> str | None:
     """Switch the agent's permission mode mid-session. Returns 'permission' on success."""
     if mode not in VALID_PERMISSION_MODES:
         console.print(
-            f"  [hermes.error]unknown mode '{mode}'.[/] "
+            f"  [josh.error]unknown mode '{mode}'.[/] "
             f"[dim]Valid: {', '.join(sorted(VALID_PERMISSION_MODES))}.[/]"
         )
         return None
@@ -833,12 +833,12 @@ async def _set_perm(agent, mode: str) -> str | None:
         console.print("  [dim]permission modes only apply to the Claude backend.[/]")
         return None
     if agent._client is None:
-        console.print("[hermes.error]Agent not connected.[/]")
+        console.print("[josh.error]Agent not connected.[/]")
         return None
     try:
         await agent._client.set_permission_mode(mode)  # type: ignore[arg-type]
     except Exception as e:  # noqa: BLE001
-        console.print(f"[hermes.error]Failed to switch permission mode: {e}[/]")
+        console.print(f"[josh.error]Failed to switch permission mode: {e}[/]")
         return None
     desc = {
         "default":           "prompts before destructive actions",
@@ -848,7 +848,7 @@ async def _set_perm(agent, mode: str) -> str | None:
         "dontAsk":           "don't ask permission",
         "auto":              "auto-decide",
     }.get(mode, mode)
-    console.print(f"  [hermes.success]permission mode →[/] [hermes.title]{mode}[/] [dim]({desc})[/]")
+    console.print(f"  [josh.success]permission mode →[/] [josh.title]{mode}[/] [dim]({desc})[/]")
     return "permission"
 
 
@@ -896,7 +896,7 @@ async def _run_update_async() -> None:
 def _run_update() -> None:
     repo = _find_repo_root()
     if repo is None:
-        console.print("[hermes.error]Couldn't locate the hermesv2 git checkout.[/]")
+        console.print("[josh.error]Couldn't locate the joshv1 git checkout.[/]")
         return
     console.print(f"[dim]git pull in {repo}...[/]")
     proc = subprocess.run(
@@ -906,10 +906,10 @@ def _run_update() -> None:
     console.print(out.strip() or "(no output)")
     if proc.returncode == 0:
         console.print(
-            "[hermes.success]Update fetched.[/] [dim]Restart hermesv2 chat to pick up changes.[/]"
+            "[josh.success]Update fetched.[/] [dim]Restart joshv1 chat to pick up changes.[/]"
         )
     else:
-        console.print(f"[hermes.error]git pull failed (exit {proc.returncode}).[/]")
+        console.print(f"[josh.error]git pull failed (exit {proc.returncode}).[/]")
 
 
 def _find_repo_root() -> Path | None:
@@ -922,7 +922,7 @@ def _find_repo_root() -> Path | None:
 
 @main.command()
 def update() -> None:
-    """`git pull` the latest hermesv2 from origin."""
+    """`git pull` the latest joshv1 from origin."""
     _run_update()
 
 
@@ -933,16 +933,16 @@ def update() -> None:
 @click.pass_context
 def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) -> None:
     """Fan out a prompt to multiple models in parallel; synthesize one answer."""
-    from hermesv2 import ensemble as ens_mod
+    from joshv1 import ensemble as ens_mod
 
     cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
 
     if list_members:
         members = ens_mod.members_from_settings(cfg.agent)
         source = "config.yaml `agent.ensemble`" if cfg.agent.ensemble else "built-in default"
-        console.print(f"\n[hermes.title]Ensemble members[/]  [dim]({source})[/]")
+        console.print(f"\n[josh.title]Ensemble members[/]  [dim]({source})[/]")
         for m in members:
-            console.print(f"  [hermes.info]{m.provider:12s}[/]  {m.model:55s}  [dim]{m.role}[/]")
+            console.print(f"  [josh.info]{m.provider:12s}[/]  {m.model:55s}  [dim]{m.role}[/]")
         console.print()
         return
 
@@ -951,7 +951,7 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) ->
     elif not sys.stdin.isatty():
         message = sys.stdin.read().strip()
     else:
-        console.print("[hermes.error]No prompt given.[/]")
+        console.print("[josh.error]No prompt given.[/]")
         sys.exit(2)
 
     async def _go() -> None:
@@ -961,16 +961,16 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) ->
 
         def _on_draft(member, draft):
             if draft.success:
-                console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/]")
+                console.print(f"  [josh.success]✓[/] [josh.info]{member.model}[/]")
             else:
-                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/]")
+                console.print(f"  [josh.error]✗[/] [josh.info]{member.model}[/]")
                 console.print(f"      [dim]error: {draft.error!r}[/]")
                 if draft.text:
                     console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
 
         answer, drafts = await ens_mod.run_ensemble(message, cfg.agent, on_draft_complete=_on_draft)
         n_ok = sum(1 for d in drafts if d.success)
-        console.print(f"\n[hermes.title]Synthesized answer[/] [dim](from {n_ok}/{len(drafts)} drafts)[/]\n")
+        console.print(f"\n[josh.title]Synthesized answer[/] [dim](from {n_ok}/{len(drafts)} drafts)[/]\n")
         console.print(answer)
         console.print()
 
@@ -987,18 +987,18 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) ->
 @click.option("--key", "api_key", default=None,
               help="API key for the provider (skips the prompt). Ignored for ollama.")
 def setup_provider(provider_name: str | None, model_name: str | None, api_key: str | None) -> None:
-    """Interactive setup: writes ~/.config/hermesv2/config.yaml + .env for non-Claude providers."""
-    from hermesv2.providers import PROVIDER_PRESETS
+    """Interactive setup: writes ~/.config/joshv1/config.yaml + .env for non-Claude providers."""
+    from joshv1.providers import PROVIDER_PRESETS
 
     if provider_name is None:
-        console.print("\n[hermes.title]Pick a provider[/]")
+        console.print("\n[josh.title]Pick a provider[/]")
         choices = ["claude"] + list(PROVIDER_PRESETS.keys())
         for i, name in enumerate(choices, 1):
             if name == "claude":
                 label = "Claude (your Max subscription — full tool use)"
             else:
                 label = PROVIDER_PRESETS[name].label
-            console.print(f"  [hermes.highlight]{i}[/]  {name:12s}  [dim]{label}[/]")
+            console.print(f"  [josh.highlight]{i}[/]  {name:12s}  [dim]{label}[/]")
         console.print()
         try:
             sel = click.prompt("which", type=click.IntRange(1, len(choices)), default=1)
@@ -1007,15 +1007,15 @@ def setup_provider(provider_name: str | None, model_name: str | None, api_key: s
             return
         provider_name = choices[sel - 1]
 
-    config_dir = Path.home() / ".config" / "hermesv2"
+    config_dir = Path.home() / ".config" / "joshv1"
     config_path = config_dir / "config.yaml"
 
     if provider_name == "claude":
         # Reset to defaults: just remove the provider line if it's there.
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path.write_text("agent:\n  provider: claude\n", encoding="utf-8")
-        console.print(f"  [hermes.success]wrote[/] [hermes.info]{config_path}[/]")
-        console.print("  [dim]restart hermesv2 to use Claude.[/]")
+        console.print(f"  [josh.success]wrote[/] [josh.info]{config_path}[/]")
+        console.print("  [dim]restart joshv1 to use Claude.[/]")
         return
 
     preset = PROVIDER_PRESETS[provider_name]
@@ -1026,11 +1026,11 @@ def setup_provider(provider_name: str | None, model_name: str | None, api_key: s
         # — common case when changing just the model.
         existing = _read_env_value(Path.home() / ".env", preset.api_key_env) or os.environ.get(preset.api_key_env)
         if existing:
-            console.print(f"  [dim]keeping existing[/] [hermes.info]{preset.api_key_env}[/] [dim]from ~/.env[/]")
+            console.print(f"  [dim]keeping existing[/] [josh.info]{preset.api_key_env}[/] [dim]from ~/.env[/]")
             api_key = existing
         else:
             console.print(
-                f"\n[hermes.title]API key[/]  [dim]({preset.api_key_env})[/]\n"
+                f"\n[josh.title]API key[/]  [dim]({preset.api_key_env})[/]\n"
                 f"  [dim]Get one at:[/] {_signup_url(provider_name)}"
             )
             try:
@@ -1040,7 +1040,7 @@ def setup_provider(provider_name: str | None, model_name: str | None, api_key: s
                 return
             api_key = api_key.strip()
             if not api_key:
-                console.print(f"[hermes.error]No key given. Aborting.[/]")
+                console.print(f"[josh.error]No key given. Aborting.[/]")
                 return
 
     # Write config.yaml
@@ -1049,22 +1049,22 @@ def setup_provider(provider_name: str | None, model_name: str | None, api_key: s
         f"agent:\n  provider: {provider_name}\n  model: {model}\n",
         encoding="utf-8",
     )
-    console.print(f"  [hermes.success]wrote[/] [hermes.info]{config_path}[/]")
+    console.print(f"  [josh.success]wrote[/] [josh.info]{config_path}[/]")
 
     # Append API key to ~/.env (or merge in-place if line already exists)
     if preset.api_key_env and api_key:
         env_path = Path.home() / ".env"
         _set_env_line(env_path, preset.api_key_env, api_key)
-        console.print(f"  [hermes.success]wrote[/] [hermes.info]{env_path}[/] [dim](key set)[/]")
+        console.print(f"  [josh.success]wrote[/] [josh.info]{env_path}[/] [dim](key set)[/]")
 
     if provider_name == "ollama":
         console.print(
             "  [dim]Make sure Ollama is running locally:[/] "
-            "[hermes.info]ollama serve[/] [dim]and[/] [hermes.info]ollama pull " + model + "[/]"
+            "[josh.info]ollama serve[/] [dim]and[/] [josh.info]ollama pull " + model + "[/]"
         )
 
-    console.print("\n  [hermes.success]Done.[/] [dim]Restart hermesv2 to use[/] "
-                  f"[hermes.info]{provider_name}[/] [dim]with[/] [hermes.info]{model}[/]")
+    console.print("\n  [josh.success]Done.[/] [dim]Restart joshv1 to use[/] "
+                  f"[josh.info]{provider_name}[/] [dim]with[/] [josh.info]{model}[/]")
 
 
 def _signup_url(provider_name: str) -> str:
@@ -1112,25 +1112,25 @@ def _read_env_value(path: Path, key: str) -> str | None:
 
 @main.command()
 @click.option("--path", "repo_path", default=None,
-              help="Repo to audit. Defaults to the hermesv2 repo this binary lives in.")
+              help="Repo to audit. Defaults to the joshv1 repo this binary lives in.")
 @click.option("--save/--no-save", default=True,
-              help="Write the report to ~/.hermes-memory/audits/<timestamp>.md.")
+              help="Write the report to ~/.josh-memory/audits/<timestamp>.md.")
 @click.pass_context
 def audit(ctx: click.Context, repo_path: str | None, save: bool) -> None:
-    """Scan hermesv2 (or another repo) and report concrete improvements."""
-    from hermesv2 import audit as audit_mod
+    """Scan joshv1 (or another repo) and report concrete improvements."""
+    from joshv1 import audit as audit_mod
 
     if repo_path:
         repo = Path(repo_path).expanduser().resolve()
     else:
         found = audit_mod.find_hermes_repo()
         if found is None:
-            console.print("[hermes.error]Couldn't find the hermesv2 repo. Pass --path explicitly.[/]")
+            console.print("[josh.error]Couldn't find the joshv1 repo. Pass --path explicitly.[/]")
             sys.exit(2)
         repo = found
 
     if not repo.is_dir():
-        console.print(f"[hermes.error]Not a directory: {repo}[/]")
+        console.print(f"[josh.error]Not a directory: {repo}[/]")
         sys.exit(2)
 
     cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
@@ -1138,9 +1138,9 @@ def audit(ctx: click.Context, repo_path: str | None, save: bool) -> None:
 
 
 async def _run_audit(cfg: Config, repo: Path, save: bool) -> None:
-    from hermesv2 import audit as audit_mod
+    from joshv1 import audit as audit_mod
 
-    console.print(f"  [dim]auditing[/] [hermes.info]{repo}[/]")
+    console.print(f"  [dim]auditing[/] [josh.info]{repo}[/]")
     transcript: list[str] = []
     async with build_backend(cfg.agent, cwd=repo) as agent:
         async for event in agent.run_stream(audit_mod.AUDIT_PROMPT):
@@ -1152,26 +1152,26 @@ async def _run_audit(cfg: Config, repo: Path, save: bool) -> None:
     if save:
         path = audit_mod.next_report_path(cfg.agent.memory_dir)
         path.write_text("".join(transcript), encoding="utf-8")
-        console.print(f"  [hermes.success]report saved[/] [hermes.info]{path}[/]")
+        console.print(f"  [josh.success]report saved[/] [josh.info]{path}[/]")
 
 
 def _print_theme_list() -> None:
     """Pretty list of all themes with inline color swatches."""
     current = themes.load_active_palette().name
     console.print(
-        f"\n  [hermes.section]Available themes[/]  "
-        f"[dim](active:[/] [hermes.session]{current}[/][dim])[/]\n"
+        f"\n  [josh.section]Available themes[/]  "
+        f"[dim](active:[/] [josh.session]{current}[/][dim])[/]\n"
     )
     for p in themes.list_themes():
-        marker = "  [hermes.session]← current[/]" if p.name == current else ""
+        marker = "  [josh.session]← current[/]" if p.name == current else ""
         console.print(
-            f"    [hermes.info]{p.name:<18}[/]  "
+            f"    [josh.info]{p.name:<18}[/]  "
             f"{themes.render_theme_swatch(p)}  "
             f"[dim]{p.label}[/]{marker}"
         )
     console.print(
-        "\n  [dim]switch with:[/] [hermes.info]hermesv2 theme <name>[/] "
-        "[dim]or[/] [hermes.info]/theme <name>[/] [dim]in chat[/]\n"
+        "\n  [dim]switch with:[/] [josh.info]joshv1 theme <name>[/] "
+        "[dim]or[/] [josh.info]/theme <name>[/] [dim]in chat[/]\n"
     )
 
 
@@ -1181,34 +1181,34 @@ def theme_cmd(name: str | None) -> None:
     """List available color themes (with previews) or switch to one.
 
     Examples:
-        hermesv2 theme              # list all themes with swatches
-        hermesv2 theme list         # same — explicit verb
-        hermesv2 theme synthwave    # switch to synthwave
+        joshv1 theme              # list all themes with swatches
+        joshv1 theme list         # same — explicit verb
+        joshv1 theme synthwave    # switch to synthwave
     """
     if not name or name == "list":
         _print_theme_list()
         return
     if name not in themes.PALETTES:
-        console.print(f"  [hermes.error]unknown theme:[/] [hermes.info]{name}[/]")
+        console.print(f"  [josh.error]unknown theme:[/] [josh.info]{name}[/]")
         console.print(f"  [dim]available:[/] {', '.join(themes.PALETTES)}")
         sys.exit(1)
     try:
         themes.save_active_theme(name)
     except Exception as e:  # noqa: BLE001
-        console.print(f"  [hermes.error]failed to save theme:[/] {e}")
+        console.print(f"  [josh.error]failed to save theme:[/] {e}")
         sys.exit(1)
     console.print(
-        f"  [hermes.success]theme set to[/] [hermes.session]{name}[/]  "
+        f"  [josh.success]theme set to[/] [josh.session]{name}[/]  "
         f"{themes.render_theme_swatch(themes.get_palette(name))}\n"
-        f"  [dim]Restart hermesv2 to see it everywhere.[/]"
+        f"  [dim]Restart joshv1 to see it everywhere.[/]"
     )
 
 
 # ---------------------------------------------------------------------------
-# Daemon: long-running hermesv2 you can attach/detach via tmux
+# Daemon: long-running joshv1 you can attach/detach via tmux
 # ---------------------------------------------------------------------------
 
-TMUX_SESSION_NAME = "hermesv2"
+TMUX_SESSION_NAME = "joshv1"
 
 
 def _tmux_available() -> bool:
@@ -1223,26 +1223,26 @@ def _tmux_session_exists(name: str) -> bool:
     return r.returncode == 0
 
 
-def _hermesv2_command() -> list[str]:
-    """Absolute command to launch the hermesv2 CLI inside the daemon session."""
-    exe = shutil.which("hermesv2")
+def _joshv1_command() -> list[str]:
+    """Absolute command to launch the joshv1 CLI inside the daemon session."""
+    exe = shutil.which("joshv1")
     if exe:
         return [exe]
-    return [sys.executable, "-m", "hermesv2"]
+    return [sys.executable, "-m", "joshv1"]
 
 
 @main.command(name="daemon")
 def daemon_cmd() -> None:
-    """Start hermesv2 chat as a persistent tmux session you can attach/detach.
+    """Start joshv1 chat as a persistent tmux session you can attach/detach.
 
     If a session already exists, attaches to it instead of starting a new one.
     Detach with Ctrl-B then D — the agent keeps running. Re-attach later with
-    `hermesv2 connect`.
+    `joshv1 connect`.
     """
     if not _tmux_available():
         console.print(
-            "  [hermes.error]tmux not installed.[/] "
-            "[dim]Run:[/] [hermes.info]sudo apt install -y tmux[/]"
+            "  [josh.error]tmux not installed.[/] "
+            "[dim]Run:[/] [josh.info]sudo apt install -y tmux[/]"
         )
         sys.exit(1)
     if _tmux_session_exists(TMUX_SESSION_NAME):
@@ -1250,10 +1250,10 @@ def daemon_cmd() -> None:
             f"  [dim]session '{TMUX_SESSION_NAME}' already running; attaching...[/]"
         )
         os.execvp("tmux", ["tmux", "attach", "-t", TMUX_SESSION_NAME])
-    cmd = _hermesv2_command()
+    cmd = _joshv1_command()
     console.print(
-        f"  [hermes.success]starting daemon session[/] [hermes.info]'{TMUX_SESSION_NAME}'[/]  "
-        f"[dim](Ctrl-B then D to detach; reconnect with `hermesv2 connect`)[/]"
+        f"  [josh.success]starting daemon session[/] [josh.info]'{TMUX_SESSION_NAME}'[/]  "
+        f"[dim](Ctrl-B then D to detach; reconnect with `joshv1 connect`)[/]"
     )
     # `-s` names the session, then the rest is the command to run inside it.
     os.execvp("tmux", ["tmux", "new-session", "-s", TMUX_SESSION_NAME, *cmd])
@@ -1261,14 +1261,14 @@ def daemon_cmd() -> None:
 
 @main.command(name="connect")
 def connect_cmd() -> None:
-    """Attach to a running hermesv2 daemon. Ctrl-B then D to detach."""
+    """Attach to a running joshv1 daemon. Ctrl-B then D to detach."""
     if not _tmux_available():
-        console.print("  [hermes.error]tmux not installed.[/]")
+        console.print("  [josh.error]tmux not installed.[/]")
         sys.exit(1)
     if not _tmux_session_exists(TMUX_SESSION_NAME):
         console.print(
-            "  [hermes.error]no daemon running.[/] "
-            "[dim]Start one with:[/] [hermes.info]hermesv2 daemon[/]"
+            "  [josh.error]no daemon running.[/] "
+            "[dim]Start one with:[/] [josh.info]joshv1 daemon[/]"
         )
         sys.exit(1)
     os.execvp("tmux", ["tmux", "attach", "-t", TMUX_SESSION_NAME])
@@ -1276,35 +1276,35 @@ def connect_cmd() -> None:
 
 @main.command(name="daemon-stop")
 def daemon_stop_cmd() -> None:
-    """Kill the running hermesv2 daemon tmux session."""
+    """Kill the running joshv1 daemon tmux session."""
     if not _tmux_available() or not _tmux_session_exists(TMUX_SESSION_NAME):
         console.print("  [dim]no daemon running.[/]")
         return
     subprocess.run(["tmux", "kill-session", "-t", TMUX_SESSION_NAME])
-    console.print(f"  [hermes.success]stopped daemon session[/] [hermes.info]'{TMUX_SESSION_NAME}'[/]")
+    console.print(f"  [josh.success]stopped daemon session[/] [josh.info]'{TMUX_SESSION_NAME}'[/]")
 
 
 @main.command(name="daemon-status")
 def daemon_status_cmd() -> None:
-    """Report whether the hermesv2 daemon is running."""
+    """Report whether the joshv1 daemon is running."""
     if not _tmux_available():
-        console.print("  [hermes.highlight]tmux not installed[/] [dim](needed for daemon mode)[/]")
+        console.print("  [josh.highlight]tmux not installed[/] [dim](needed for daemon mode)[/]")
         return
     if _tmux_session_exists(TMUX_SESSION_NAME):
         console.print(
-            f"  [hermes.success]running[/] [dim]as tmux session[/] [hermes.info]'{TMUX_SESSION_NAME}'[/]\n"
-            f"  [dim]attach:[/] [hermes.info]hermesv2 connect[/]\n"
-            f"  [dim]kill:  [/] [hermes.info]hermesv2 daemon-stop[/]"
+            f"  [josh.success]running[/] [dim]as tmux session[/] [josh.info]'{TMUX_SESSION_NAME}'[/]\n"
+            f"  [dim]attach:[/] [josh.info]joshv1 connect[/]\n"
+            f"  [dim]kill:  [/] [josh.info]joshv1 daemon-stop[/]"
         )
     else:
         console.print(
             "  [dim]not running.[/] "
-            "[dim]Start:[/] [hermes.info]hermesv2 daemon[/]"
+            "[dim]Start:[/] [josh.info]joshv1 daemon[/]"
         )
 
 
 # ---------------------------------------------------------------------------
-# `hermesv2 plugin ...` — thin wrapper around `claude plugin` subcommand
+# `joshv1 plugin ...` — thin wrapper around `claude plugin` subcommand
 # ---------------------------------------------------------------------------
 
 
@@ -1338,7 +1338,7 @@ def _open_in_browser(url: str) -> bool:
 def _shell_claude_plugin(args: list[str]) -> None:
     """Invoke `claude plugin <args>` and surface stdout/stderr in our console."""
     if not shutil.which("claude"):
-        console.print("[hermes.error]claude CLI not found. Install Claude Code first.[/]")
+        console.print("[josh.error]claude CLI not found. Install Claude Code first.[/]")
         return
     try:
         proc = subprocess.run(
@@ -1346,16 +1346,16 @@ def _shell_claude_plugin(args: list[str]) -> None:
             capture_output=True, text=True, timeout=180,
         )
     except subprocess.TimeoutExpired:
-        console.print("[hermes.error]claude plugin timed out.[/]")
+        console.print("[josh.error]claude plugin timed out.[/]")
         return
     if proc.stdout:
         console.print(proc.stdout.rstrip())
     if proc.returncode != 0:
         msg = (proc.stderr or "(no stderr)").rstrip()
-        console.print(f"[hermes.error]exit {proc.returncode}:[/] {msg}")
+        console.print(f"[josh.error]exit {proc.returncode}:[/] {msg}")
         return
     console.print(
-        "[dim](plugin changes take effect on /new in chat or on next `hermesv2` launch)[/]"
+        "[dim](plugin changes take effect on /new in chat or on next `joshv1` launch)[/]"
     )
 
 
@@ -1364,7 +1364,7 @@ def plugin_group() -> None:
     """Install and manage Claude Code plugins.
 
     Thin wrapper around `claude plugin`. Use plugin@marketplace for a specific
-    marketplace, e.g. `hermesv2 plugin install github@claude-plugins-official`.
+    marketplace, e.g. `joshv1 plugin install github@claude-plugins-official`.
     """
 
 
@@ -1452,13 +1452,13 @@ def skill_group() -> None:
 @skill_group.command(name="list")
 def skill_list() -> None:
     """List installed skills (in ~/.claude/skills/)."""
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     entries = skillsmod.list_installed()
     if not entries:
         console.print("[dim]No skills installed.[/]")
         return
     for e in entries:
-        line = f"  [hermes.info]{e.name:<24}[/]"
+        line = f"  [josh.info]{e.name:<24}[/]"
         if e.description:
             line += f" [dim]{e.description}[/]"
         if e.author:
@@ -1469,13 +1469,13 @@ def skill_list() -> None:
 @skill_group.command(name="browse")
 def skill_browse() -> None:
     """Show all skills in the curated marketplace."""
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     items = skillsmod.browse()
     if not items:
         console.print("[dim]Marketplace is empty.[/]")
         return
     for item in items:
-        console.print(f"  [hermes.title]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
+        console.print(f"  [josh.title]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
         meta = []
         if item.get("author"):
             meta.append(f"by {item['author']}")
@@ -1489,28 +1489,28 @@ def skill_browse() -> None:
 @click.argument("query", nargs=-1, required=True)
 def skill_search(query: tuple[str, ...]) -> None:
     """Filter the marketplace by name/description/tag."""
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     q = " ".join(query)
     matches = skillsmod.search(q)
     if not matches:
         console.print(f"[dim]No marketplace matches for '{q}'.[/]")
         return
     for item in matches:
-        console.print(f"  [hermes.info]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
+        console.print(f"  [josh.info]{item.get('name')}[/]  [dim]{item.get('description', '')}[/]")
 
 
 @skill_group.command(name="inspect")
 @click.argument("name")
 def skill_inspect(name: str) -> None:
     """Print a preview of an installed skill's SKILL.md."""
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     text = skillsmod.inspect_skill(name)
     if text is None:
-        console.print(f"[hermes.error]not installed:[/] {name}")
+        console.print(f"[josh.error]not installed:[/] {name}")
         sys.exit(1)
     entry = skillsmod.get_installed(name)
     if entry:
-        console.print(f"[hermes.title]{entry.name}[/]  [dim]{entry.description}[/]")
+        console.print(f"[josh.title]{entry.name}[/]  [dim]{entry.description}[/]")
         if entry.source:
             console.print(f"[dim]source: {entry.source}[/]")
         console.print(f"[dim]path: {entry.installed_at}[/]")
@@ -1523,13 +1523,13 @@ def skill_inspect(name: str) -> None:
 @click.option("--name", default=None, help="Override the install directory name.")
 def skill_install(identifier: str, name: str | None) -> None:
     """Install a skill by marketplace name, owner/repo, or git URL."""
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     try:
         entry = skillsmod.install(identifier, name=name)
     except skillsmod.SkillError as e:
-        console.print(f"[hermes.error]install failed:[/] {e}")
+        console.print(f"[josh.error]install failed:[/] {e}")
         sys.exit(1)
-    console.print(f"[hermes.success]installed[/] [hermes.info]{entry.name}[/] → [dim]{entry.installed_at}[/]")
+    console.print(f"[josh.success]installed[/] [josh.info]{entry.name}[/] → [dim]{entry.installed_at}[/]")
     if entry.description:
         console.print(f"[dim]{entry.description}[/]")
 
@@ -1539,22 +1539,22 @@ def skill_install(identifier: str, name: str | None) -> None:
 @click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
 def skill_uninstall(name: str, yes: bool) -> None:
     """Remove an installed skill."""
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     entry = skillsmod.get_installed(name)
     if entry is None:
-        console.print(f"[hermes.error]not installed:[/] {name}")
+        console.print(f"[josh.error]not installed:[/] {name}")
         sys.exit(1)
     if not yes:
-        console.print(f"  [hermes.highlight]about to delete:[/] [hermes.info]{entry.installed_at}[/]")
+        console.print(f"  [josh.highlight]about to delete:[/] [josh.info]{entry.installed_at}[/]")
         if not click.confirm("  proceed?", default=False):
             console.print("[dim]cancelled.[/]")
             return
     try:
         skillsmod.uninstall(name)
     except skillsmod.SkillError as e:
-        console.print(f"[hermes.error]uninstall failed:[/] {e}")
+        console.print(f"[josh.error]uninstall failed:[/] {e}")
         sys.exit(1)
-    console.print(f"[hermes.success]uninstalled[/] {name}")
+    console.print(f"[josh.success]uninstalled[/] {name}")
 
 
 @skill_group.command(name="snapshot")
@@ -1564,20 +1564,20 @@ def skill_snapshot(direction: str, path: str) -> None:
     """Export current skills to JSON, or import a snapshot back."""
     import json
 
-    from hermesv2 import skills as skillsmod
+    from joshv1 import skills as skillsmod
     p = Path(path)
     if direction == "export":
         p.write_text(json.dumps(skillsmod.snapshot_export(), indent=2))
-        console.print(f"[hermes.success]wrote snapshot →[/] [hermes.info]{p}[/]")
+        console.print(f"[josh.success]wrote snapshot →[/] [josh.info]{p}[/]")
     else:
         try:
             data = json.loads(p.read_text())
         except (OSError, json.JSONDecodeError) as e:
-            console.print(f"[hermes.error]bad snapshot file:[/] {e}")
+            console.print(f"[josh.error]bad snapshot file:[/] {e}")
             sys.exit(1)
         installed = skillsmod.snapshot_import(data)
         if installed:
-            console.print(f"[hermes.success]installed {len(installed)} new skills:[/] {', '.join(installed)}")
+            console.print(f"[josh.success]installed {len(installed)} new skills:[/] {', '.join(installed)}")
         else:
             console.print("[dim]nothing new to install (all already present).[/]")
 
@@ -1586,10 +1586,10 @@ def skill_snapshot(direction: str, path: str) -> None:
 @click.argument("directory", type=click.Path(exists=True, file_okay=False))
 @click.option("--rebuild", is_flag=True, help="Wipe the index before re-walking.")
 def index_cmd(directory: str, rebuild: bool) -> None:
-    """Index a directory of text/markdown files for `hermesv2 search`."""
-    from hermesv2.search import index_directory
+    """Index a directory of text/markdown files for `joshv1 search`."""
+    from joshv1.search import index_directory
     n = index_directory(directory, rebuild=rebuild)
-    console.print(f"[hermes.success]Indexed {n} files[/] from [hermes.info]{directory}[/]")
+    console.print(f"[josh.success]Indexed {n} files[/] from [josh.info]{directory}[/]")
 
 
 @main.command(name="search")
@@ -1598,12 +1598,12 @@ def index_cmd(directory: str, rebuild: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable output.")
 def search_cmd(query: tuple[str, ...], limit: int, as_json: bool) -> None:
     """Full-text search over your indexed notes (FTS5)."""
-    from hermesv2.search import render_hits, render_hits_json, search
+    from joshv1.search import render_hits, render_hits_json, search
     q = " ".join(query)
     try:
         hits = search(q, limit=limit)
     except ValueError as e:
-        console.print(f"[hermes.error]{e}[/]")
+        console.print(f"[josh.error]{e}[/]")
         sys.exit(1)
     if as_json:
         print(render_hits_json(hits))
@@ -1615,18 +1615,18 @@ def search_cmd(query: tuple[str, ...], limit: int, as_json: bool) -> None:
 @click.argument("audio_file", type=click.Path(exists=True, dir_okay=False))
 @click.option("--model", default="small", help="Whisper model: tiny, base, small, medium, large-v3.")
 @click.option("--language", default=None, help="ISO language code; auto-detect if omitted.")
-@click.option("--run", "auto_run", is_flag=True, help="Pipe the transcript into `hermesv2 run`.")
+@click.option("--run", "auto_run", is_flag=True, help="Pipe the transcript into `joshv1 run`.")
 def voice_cmd(audio_file: str, model: str, language: str | None, auto_run: bool) -> None:
     """Transcribe an audio file using local Whisper, optionally run it as a prompt."""
-    from hermesv2.voice import transcribe
+    from joshv1.voice import transcribe
     try:
         console.print(f"[dim]transcribing {audio_file} with whisper-{model}...[/]")
         text = transcribe(audio_file, model_name=model, language=language)
     except RuntimeError as e:
-        console.print(f"[hermes.error]{e}[/]")
+        console.print(f"[josh.error]{e}[/]")
         sys.exit(1)
 
-    console.print(f"\n[hermes.title]Transcript:[/] {text}\n")
+    console.print(f"\n[josh.title]Transcript:[/] {text}\n")
     if not auto_run or not text:
         return
 
@@ -1644,15 +1644,15 @@ def sessions_cmd(delete_id: str | None, limit: int) -> None:
     if delete_id:
         try:
             delete_session(delete_id)
-            console.print(f"[hermes.success]Deleted session {delete_id}.[/]")
+            console.print(f"[josh.success]Deleted session {delete_id}.[/]")
         except Exception as e:  # noqa: BLE001
-            console.print(f"[hermes.error]Delete failed: {e}[/]")
+            console.print(f"[josh.error]Delete failed: {e}[/]")
         return
 
     try:
         sessions = list_sessions(limit=limit)
     except Exception as e:  # noqa: BLE001
-        console.print(f"[hermes.error]Failed to list sessions: {e}[/]")
+        console.print(f"[josh.error]Failed to list sessions: {e}[/]")
         sys.exit(1)
     if not sessions:
         console.print("[dim]No saved sessions yet.[/]")
@@ -1732,7 +1732,7 @@ def doctor() -> None:
             (
                 "Slack tokens (optional)",
                 slack_set,
-                "set" if slack_set else "unset — only needed for `hermesv2 slack`",
+                "set" if slack_set else "unset — only needed for `joshv1 slack`",
             )
         )
         discord_set = bool(cfg.discord.get("bot_token"))
@@ -1740,12 +1740,12 @@ def doctor() -> None:
             (
                 "Discord token (optional)",
                 discord_set,
-                "set" if discord_set else "unset — only needed for `hermesv2 discord`",
+                "set" if discord_set else "unset — only needed for `joshv1 discord`",
             )
         )
         # Optional /maps connectivity probes
         try:
-            from hermesv2 import maps as mapsmod
+            from joshv1 import maps as mapsmod
             nominatim_ok = mapsmod.can_reach("https://nominatim.openstreetmap.org/")
             checks.append((
                 "Nominatim reachable (optional)",
@@ -1771,20 +1771,20 @@ def doctor() -> None:
 
     required_ok = True
     for name, ok, msg in checks:
-        sym = "[hermes.success]OK[/]" if ok else "[hermes.error]X[/]"
+        sym = "[josh.success]OK[/]" if ok else "[josh.error]X[/]"
         console.print(f"  {sym}  [bold]{name}[/]  [dim]{msg}[/]")
         if not ok and "optional" not in name:
             required_ok = False
 
     if required_ok:
         console.print(
-            "\n[hermes.section]All required checks passed.[/] Just type [hermes.info]hermesv2[/]."
+            "\n[josh.section]All required checks passed.[/] Just type [josh.info]joshv1[/]."
         )
     else:
         console.print(
-            "\n[hermes.error.bold]Some required checks failed.[/] Common fixes:\n"
-            "  - Install Claude Code: [hermes.info]npm install -g @anthropic-ai/claude-code[/]\n"
-            "  - Log in to your Max account: [hermes.info]claude login[/]"
+            "\n[josh.error.bold]Some required checks failed.[/] Common fixes:\n"
+            "  - Install Claude Code: [josh.info]npm install -g @anthropic-ai/claude-code[/]\n"
+            "  - Log in to your Max account: [josh.info]claude login[/]"
         )
         sys.exit(1)
 
@@ -1793,7 +1793,7 @@ def doctor() -> None:
 @click.pass_context
 def slack(ctx: click.Context) -> None:
     """Run the Slack bot (Socket Mode)."""
-    from hermesv2.platforms.slack import run_slack_bot
+    from joshv1.platforms.slack import run_slack_bot
 
     cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
     asyncio.run(run_slack_bot(cfg))
@@ -1803,7 +1803,7 @@ def slack(ctx: click.Context) -> None:
 @click.pass_context
 def discord(ctx: click.Context) -> None:
     """Run the Discord bot."""
-    from hermesv2.platforms.discord import run_discord_bot
+    from joshv1.platforms.discord import run_discord_bot
 
     cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
     asyncio.run(run_discord_bot(cfg))

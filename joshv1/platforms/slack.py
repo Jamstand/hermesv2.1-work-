@@ -1,6 +1,6 @@
 """Slack bot adapter using slack-bolt async + Socket Mode.
 
-Requires `pip install 'hermesv2[slack]'`. Needs a Slack app with:
+Requires `pip install 'joshv1[slack]'`. Needs a Slack app with:
   - Socket Mode enabled
   - Bot Token scopes: chat:write, app_mentions:read, im:history, im:write, im:read
   - Event subscriptions: app_mention, message.im
@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import sys
 
-from hermesv2.agent import Agent
-from hermesv2.config import Config
+from joshv1.agent import Agent
+from joshv1.config import Config
 
 
 async def run_slack_bot(config: Config) -> None:
@@ -25,7 +25,7 @@ async def run_slack_bot(config: Config) -> None:
         from slack_bolt.async_app import AsyncApp
     except ImportError:
         print(
-            "Slack support requires the slack extras: pip install 'hermesv2[slack]'",
+            "Slack support requires the slack extras: pip install 'joshv1[slack]'",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -1,0 +1,7 @@
+"""Josh v1 — personal agent built on the Claude Agent SDK."""
+
+from joshv1.agent import Agent
+from joshv1.config import AgentSettings, Config, load_config
+
+__all__ = ["Agent", "AgentSettings", "Config", "load_config"]
+__version__ = "0.5.0"

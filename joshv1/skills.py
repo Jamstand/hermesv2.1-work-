@@ -1,4 +1,4 @@
-"""Skills management for Hermes v2.
+"""Skills management for Josh v1.
 
 Skills are markdown-file packages Claude Code loads from ~/.claude/skills/.
 Each skill is a directory containing at least a SKILL.md file with YAML
@@ -205,7 +205,7 @@ def resolve_identifier(identifier: str) -> dict[str, Any]:
             }
     raise SkillError(
         f"'{identifier}' is not a git URL and not in the marketplace. "
-        "Use a full URL, 'owner/repo' shorthand, or `hermesv2 skill browse` to see what's available."
+        "Use a full URL, 'owner/repo' shorthand, or `joshv1 skill browse` to see what's available."
     )
 
 
@@ -228,7 +228,7 @@ def install(identifier: str, name: str | None = None) -> SkillEntry:
     if target.exists():
         raise SkillError(f"already installed at {target}")
 
-    with tempfile.TemporaryDirectory(prefix="hermesv2-skill-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="joshv1-skill-") as tmp:
         tmp_path = Path(tmp) / "clone"
         result = subprocess.run(
             ["git", "clone", "--depth=1", url, str(tmp_path)],

@@ -1,10 +1,10 @@
-"""Terminal UI helpers for the `hermesv2 chat` REPL.
+"""Terminal UI helpers for the `joshv1 chat` REPL.
 
 Renders an ANSI Shadow banner and bordered welcome panel similar to the
 upstream NousResearch hermes-agent TUI, then a styled prompt + tool-call
 trace + per-turn footer for each interaction.
 
-Only used by `hermesv2 chat`. `hermesv2 run` stays plain so it pipes cleanly.
+Only used by `joshv1 chat`. `joshv1 run` stays plain so it pipes cleanly.
 """
 
 from __future__ import annotations
@@ -20,15 +20,15 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
 
-from hermesv2 import __version__, themes
-from hermesv2.agent import DEFAULT_TOOLS
-from hermesv2.config import AgentSettings
+from joshv1 import __version__, themes
+from joshv1.agent import DEFAULT_TOOLS
+from joshv1.config import AgentSettings
 
 # Colors are NOT hardcoded here — every style references a semantic
-# `hermes.*` name (e.g. `hermes.title`, `hermes.section`) which the
-# active Theme (built from hermesv2.themes) maps to a hex code. That
+# `josh.*` name (e.g. `josh.title`, `josh.section`) which the
+# active Theme (built from joshv1.themes) maps to a hex code. That
 # means swapping `/theme` repaints every element without touching this
-# file. See hermesv2/themes.py for the available palettes.
+# file. See joshv1/themes.py for the available palettes.
 
 BANNER = r"""
 ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗   ██╗   ██╗██████╗     ██╗
@@ -41,7 +41,7 @@ BANNER = r"""
 """
 
 # Detailed V2 logo for the welcome panel: ANSI-Shadow "V" stacked on "2",
-# framed by a winged emblem border with HERMES / WORK / v2.1 wordmark below.
+# framed by a winged emblem border with JOSH / WORK / v2.1 wordmark below.
 # About 22 lines tall × 23 cols wide — fits in a side column on most terminals.
 LOGO = r"""
        ╔═════════╗
@@ -61,7 +61,7 @@ LOGO = r"""
     ╚══╗         ╔══╝
        ╚═════════╝
       ━━━━━━━━━━━━━━
-       ◈  HERMES  ◈
+       ◈  JOSH   ◈
        ◈   WORK   ◈
             v2.1
 """
@@ -117,13 +117,13 @@ def render_startup(
     session_name: str | None = None,
 ) -> None:
     """Print the banner + welcome panel. Called once at the start of `chat`."""
-    console.print(Text(BANNER, style="hermes.title"), highlight=False)
+    console.print(Text(BANNER, style="josh.title"), highlight=False)
     tagline = Text()
     tagline.append("    Personal Work Agent  ", style="dim italic")
     tagline.append("·", style="dim")
     tagline.append("  Max-subscription billing  ", style="dim italic")
     tagline.append("·  ", style="dim")
-    tagline.append(f"v{__version__}", style="hermes.highlight.bold")
+    tagline.append(f"v{__version__}", style="josh.highlight.bold")
     console.print(tagline)
     console.print()
     console.print(_welcome_panel(settings, session_name))
@@ -135,28 +135,28 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
     info_lines: list[Text] = [Text()]
 
     # Available Tools section
-    info_lines.append(Text("  Available Tools", style="hermes.section"))
+    info_lines.append(Text("  Available Tools", style="josh.section"))
     for group, tools in TOOL_GROUPS.items():
         line = Text("    ")
         line.append(f"{group:<8}", style="dim")
         line.append(": ", style="dim")
-        line.append(", ".join(tools), style="hermes.text")
+        line.append(", ".join(tools), style="josh.text")
         info_lines.append(line)
     if settings.mcp_servers:
         line = Text("    ")
         line.append(f"{'mcp':<8}", style="dim")
         line.append(": ", style="dim")
-        line.append(", ".join(settings.mcp_servers.keys()), style="hermes.secondary")
+        line.append(", ".join(settings.mcp_servers.keys()), style="josh.secondary")
         info_lines.append(line)
     info_lines.append(Text())
 
     # Available Skills section
     skills = discover_skills(limit=8)
     if skills:
-        info_lines.append(Text("  Available Skills", style="hermes.section"))
+        info_lines.append(Text("  Available Skills", style="josh.section"))
         for name, desc in skills:
             line = Text("    ")
-            line.append(f"{name}", style="hermes.info")
+            line.append(f"{name}", style="josh.info")
             if desc:
                 short = desc if len(desc) < 60 else desc[:60] + "..."
                 line.append(": ", style="dim")
@@ -175,13 +175,13 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
     for key, val in config_table:
         line = Text("  ")
         line.append(f"{key:<12}", style="dim")
-        line.append(str(val), style="hermes.info")
+        line.append(str(val), style="josh.info")
         info_lines.append(line)
 
     # Session line — prominent, formatted like upstream hermes-agent
     session_line = Text("  ")
     session_line.append(f"{'Session':<12}", style="dim")
-    session_line.append(session_name or "(ephemeral)", style="hermes.highlight.bold")
+    session_line.append(session_name or "(ephemeral)", style="josh.highlight.bold")
     info_lines.append(session_line)
     info_lines.append(Text())
 
@@ -190,16 +190,16 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
         1 for _ in settings.mcp_servers
     )
     counts = Text("  ")
-    counts.append(f"{total_tools} tools", style="hermes.success")
+    counts.append(f"{total_tools} tools", style="josh.success")
     counts.append(" · ", style="dim")
-    counts.append(f"{len(skills)} skills" if skills else "0 skills", style="hermes.success")
+    counts.append(f"{len(skills)} skills" if skills else "0 skills", style="josh.success")
     counts.append(" · ", style="dim")
     counts.append("/help for commands · /exit quits", style="dim")
     info_lines.append(counts)
     info_lines.append(Text())
 
     # Left-side logo column.
-    logo = Text(LOGO, style="hermes.warm")
+    logo = Text(LOGO, style="josh.warm")
 
     # Compose side-by-side via Columns.
     from rich.columns import Columns
@@ -212,22 +212,22 @@ def _welcome_panel(settings: AgentSettings, session_name: str | None) -> Panel:
 
     active_theme = themes.load_active_palette().name
     title = Text()
-    title.append(" Hermesv2.1 ", style="hermes.title")
-    title.append("(work) ", style="hermes.highlight.bold")
-    title.append(f"v{__version__}", style="hermes.warm")
+    title.append(" Joshv1 ", style="josh.title")
+    title.append("(work) ", style="josh.highlight.bold")
+    title.append(f"v{__version__}", style="josh.warm")
     title.append(" · ", style="dim")
-    title.append(settings.model, style="hermes.success")
+    title.append(settings.model, style="josh.success")
     title.append(" · ", style="dim")
-    title.append("Max subscription", style="hermes.chevron")
+    title.append("Max subscription", style="josh.chevron")
     title.append("  ·  ", style="dim")
-    title.append(active_theme, style="hermes.info")
+    title.append(active_theme, style="josh.info")
     title.append(" ", style="dim")
 
     return Panel(
         body,
         title=title,
         title_align="left",
-        border_style="hermes.border",
+        border_style="josh.border",
         padding=(0, 1),
     )
 
@@ -263,13 +263,13 @@ class ThinkingSpinner:
         self._stopped = False
 
     def _label(self, verb: str) -> str:
-        return f"[hermes.chevron]{verb}...[/]"
+        return f"[josh.chevron]{verb}...[/]"
 
     def start(self) -> None:
         if self._status is not None:
             return
         verb = next(self._verbs)
-        self._status = self._console.status(self._label(verb), spinner="dots", spinner_style="hermes.border")
+        self._status = self._console.status(self._label(verb), spinner="dots", spinner_style="josh.border")
         self._status.__enter__()
         self._task = asyncio.create_task(self._rotate())
 
@@ -298,7 +298,7 @@ class ThinkingSpinner:
 
 def prompt_label() -> str:
     # Used by the non-prompt-toolkit path (legacy). New chat uses HTML prompt.
-    return "\n[bold cyan]▎[/] [bold cyan]you[/] [hermes.chevron]❱[/] "
+    return "\n[bold cyan]▎[/] [bold cyan]you[/] [josh.chevron]❱[/] "
 
 
 def render_text_delta(console: Console, text: str) -> None:
@@ -376,16 +376,16 @@ async def pick_model_dialog(console: Console, current_model: str) -> str | None:
 
     console.print()
     console.print(
-        f"  [hermes.chevron]▎[/] [bold cyan]Model Picker[/] "
-        f"[dim]· currently on[/] [hermes.secondary]{current_model}[/]"
+        f"  [josh.chevron]▎[/] [bold cyan]Model Picker[/] "
+        f"[dim]· currently on[/] [josh.secondary]{current_model}[/]"
     )
     console.print()
     width = max(len(mid) for mid, _ in KNOWN_MODELS) + 1
     for i, (model_id, label) in enumerate(KNOWN_MODELS, 1):
-        marker = " [hermes.highlight.bold]← current[/]" if model_id == current_model else ""
+        marker = " [josh.highlight.bold]← current[/]" if model_id == current_model else ""
         console.print(
-            f"    [hermes.highlight.bold]{i}.[/] "
-            f"[hermes.info]{model_id:<{width}}[/] "
+            f"    [josh.highlight.bold]{i}.[/] "
+            f"[josh.info]{model_id:<{width}}[/] "
             f"[dim]· {label}[/]{marker}"
         )
     console.print()
@@ -412,7 +412,7 @@ async def pick_model_dialog(console: Console, current_model: str) -> str | None:
             return KNOWN_MODELS[idx][0]
     except ValueError:
         pass
-    console.print("  [hermes.error]invalid choice[/]")
+    console.print("  [josh.error]invalid choice[/]")
     return None
 
 
@@ -423,16 +423,16 @@ async def pick_effort_dialog(console: Console, current_effort: str) -> str | Non
 
     console.print()
     console.print(
-        f"  [hermes.chevron]▎[/] [bold cyan]Effort Picker[/] "
-        f"[dim]· currently on[/] [hermes.secondary]{current_effort}[/]"
+        f"  [josh.chevron]▎[/] [bold cyan]Effort Picker[/] "
+        f"[dim]· currently on[/] [josh.secondary]{current_effort}[/]"
     )
     console.print()
     width = max(len(eid) for eid, _ in KNOWN_EFFORTS) + 1
     for i, (effort_id, label) in enumerate(KNOWN_EFFORTS, 1):
-        marker = " [hermes.highlight.bold]← current[/]" if effort_id == current_effort else ""
+        marker = " [josh.highlight.bold]← current[/]" if effort_id == current_effort else ""
         console.print(
-            f"    [hermes.highlight.bold]{i}.[/] "
-            f"[hermes.info]{effort_id:<{width}}[/] "
+            f"    [josh.highlight.bold]{i}.[/] "
+            f"[josh.info]{effort_id:<{width}}[/] "
             f"[dim]· {label}[/]{marker}"
         )
     console.print()
@@ -459,7 +459,7 @@ async def pick_effort_dialog(console: Console, current_effort: str) -> str | Non
             return KNOWN_EFFORTS[idx][0]
     except ValueError:
         pass
-    console.print("  [hermes.error]invalid choice[/]")
+    console.print("  [josh.error]invalid choice[/]")
     return None
 
 
@@ -485,7 +485,7 @@ def render_assistant_markdown(console: Console, text: str) -> None:
 
 def assistant_label(console: Console) -> None:
     # Full line, so the following markdown block renders cleanly below.
-    console.print("[hermes.chevron]▎ hermes ❰[/]")
+    console.print("[josh.chevron]▎ josh ❰[/]")
 
 
 def render_thinking_delta(console: Console, text: str) -> None:
@@ -496,11 +496,11 @@ def render_tool_call(console: Console, name: str, tool_input: dict) -> None:
     preview = str(tool_input)
     if len(preview) > 200:
         preview = preview[:200] + "..."
-    console.print(f"\n  [hermes.info]⚙ {name}[/] [dim]{preview}[/]")
+    console.print(f"\n  [josh.info]⚙ {name}[/] [dim]{preview}[/]")
 
 
 def render_tool_result(console: Console, name: str, output: str, is_error: bool) -> None:
-    color = "hermes.error" if is_error else "hermes.success"
+    color = "josh.error" if is_error else "josh.success"
     preview = output if len(output) < 400 else output[:400] + "..."
     console.print(f"  [{color}]↳ {name}[/] [dim]{preview}[/]")
 
@@ -512,7 +512,7 @@ def render_turn_footer(
     usage: dict,
 ) -> None:
     line = Text()
-    line.append("  ⚕ ", style="hermes.chevron")
+    line.append("  ⚕ ", style="josh.chevron")
     line.append(f"stop={stop_reason}", style="dim")
     if usage:
         input_tokens = usage.get("input_tokens") or 0
@@ -524,7 +524,7 @@ def render_turn_footer(
     if cost_usd:
         line.append(f"~${cost_usd:.4f} equiv", style="dim")
         line.append(" · ", style="dim")
-    line.append("Max subscription", style="hermes.secondary")
+    line.append("Max subscription", style="josh.secondary")
     console.print()
     console.print(line)
 
@@ -548,12 +548,12 @@ def render_status_bar(
         bar = f"[{bar_chars}] {ctx_pct:.0f}%"
 
     parts = Text()
-    parts.append(" ⚕ ", style="hermes.chevron")
-    parts.append(model, style="hermes.info")
+    parts.append(" ⚕ ", style="josh.chevron")
+    parts.append(model, style="josh.info")
     parts.append(" │ ", style="dim")
-    parts.append(f"⌖ {session_id}", style="hermes.session.marker")
+    parts.append(f"⌖ {session_id}", style="josh.session.marker")
     parts.append(" │ ", style="dim")
-    parts.append(ctx_str, style="hermes.success" if ctx_pct and ctx_pct < 70 else "yellow")
+    parts.append(ctx_str, style="josh.success" if ctx_pct and ctx_pct < 70 else "yellow")
     parts.append(" │ ", style="dim")
     parts.append(bar, style="dim")
     parts.append(" │ ", style="dim")
@@ -569,11 +569,11 @@ def render_sessions(console: Console, sessions: list) -> None:
 
     from rich.table import Table
 
-    table = Table(border_style="dim", header_style="hermes.title")
-    table.add_column("Session ID", style="hermes.info", no_wrap=True)
+    table = Table(border_style="dim", header_style="josh.title")
+    table.add_column("Session ID", style="josh.info", no_wrap=True)
     table.add_column("Modified", style="dim")
     table.add_column("Branch / cwd", style="dim")
-    table.add_column("Summary", style="hermes.text")
+    table.add_column("Summary", style="josh.text")
 
     for s in sessions:
         ts = getattr(s, "last_modified", 0) or 0
@@ -604,8 +604,8 @@ def _fmt_seconds(seconds: float) -> str:
 SLASH_COMMANDS: list[tuple[str, str]] = [
     # General
     ("/help",       "Show available slash commands"),
-    ("/exit",       "Quit hermesv2"),
-    ("/quit",       "Quit hermesv2 (alias for /exit)"),
+    ("/exit",       "Quit joshv1"),
+    ("/quit",       "Quit joshv1 (alias for /exit)"),
     # Session control
     ("/new",        "Start a new session (fresh history)"),
     ("/reset",      "Start a new session (alias for /new)"),
@@ -641,8 +641,8 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/tools",      "List built-in tools (Read, Write, Bash, etc.)"),
     ("/model",      "Switch model mid-session (usage: /model <name>)"),
     ("/effort",     "Change agent effort (interactive picker; persistent)"),
-    ("/update",     "git pull the latest hermesv2 from origin"),
-    ("/audit",      "Have hermesv2 scan its own repo and report improvements"),
+    ("/update",     "git pull the latest joshv1 from origin"),
+    ("/audit",      "Have joshv1 scan its own repo and report improvements"),
     ("/ensemble",   "Fan out a prompt to multiple models, synthesize one answer (usage: /ensemble <prompt>)"),
 ]
 
@@ -650,16 +650,16 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
 def render_help(console: Console) -> None:
     console.print("\n[bold cyan]Slash commands[/]")
     for cmd, desc in SLASH_COMMANDS:
-        console.print(f"  [hermes.highlight]{cmd:<12}[/]  [dim]{desc}[/]")
+        console.print(f"  [josh.highlight]{cmd:<12}[/]  [dim]{desc}[/]")
     console.print()
 
 
 def render_tools(console: Console) -> None:
-    console.print("\n[hermes.section]Built-in tools[/]")
+    console.print("\n[josh.section]Built-in tools[/]")
     for group, tools in TOOL_GROUPS.items():
         line = Text("  ")
         line.append(f"{group:<8}", style="dim")
-        line.append(", ".join(tools), style="hermes.text")
+        line.append(", ".join(tools), style="josh.text")
         console.print(line)
     console.print()
 
@@ -669,8 +669,8 @@ def render_stats(
     total_cost: float, session_seconds: float,
 ) -> None:
     line = Text()
-    line.append("\n  session  ", style="hermes.title")
-    line.append(f"{turns} turn{'s' if turns != 1 else ''}", style="hermes.success")
+    line.append("\n  session  ", style="josh.title")
+    line.append(f"{turns} turn{'s' if turns != 1 else ''}", style="josh.success")
     line.append(" · ", style="dim")
     line.append(f"in {total_input} / out {total_output} tokens", style="dim")
     line.append(" · ", style="dim")
@@ -679,6 +679,6 @@ def render_stats(
         line.append(" · ", style="dim")
     line.append(f"{_fmt_seconds(session_seconds)} elapsed", style="dim")
     line.append(" · ", style="dim")
-    line.append("billed to Max subscription", style="hermes.secondary")
+    line.append("billed to Max subscription", style="josh.secondary")
     console.print(line)
     console.print()

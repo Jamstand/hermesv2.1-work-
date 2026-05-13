@@ -1,6 +1,6 @@
 """Persistent agent memory.
 
-Lives at ~/.hermes-memory/ by default. The directory contains plain markdown
+Lives at ~/.josh-memory/ by default. The directory contains plain markdown
 files the agent reads at the start of every turn (via the system prompt) and
 writes to via the Write tool when it learns something durable about the user.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 DEFAULT_USER_MD = """# About me
 
-(Hermes v2 will update this file as it learns durable facts about you:
+(Josh v1 will update this file as it learns durable facts about you:
 preferences, ongoing projects, tone, work context. Feel free to seed it
 manually too.)
 
@@ -37,7 +37,7 @@ manually too.)
 
 
 def memory_dir(path: str | Path | None = None) -> Path:
-    p = Path(path).expanduser() if path else (Path.home() / ".hermes-memory")
+    p = Path(path).expanduser() if path else (Path.home() / ".josh-memory")
     p.mkdir(parents=True, exist_ok=True)
     return p
 

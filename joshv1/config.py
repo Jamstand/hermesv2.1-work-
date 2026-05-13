@@ -16,19 +16,19 @@ from dotenv import load_dotenv
 
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
-EFFORT_FILE = "effort"  # under ~/.hermes-memory/, set via /effort
+EFFORT_FILE = "effort"  # under ~/.josh-memory/, set via /effort
 
 
 def save_active_effort(effort: str, memory_dir_path: str | os.PathLike[str]) -> None:
     """Persist the effort selection so it survives restarts."""
-    from hermesv2.memory import memory_dir as _mem_dir
+    from joshv1.memory import memory_dir as _mem_dir
     mem_dir = _mem_dir(memory_dir_path)
     mem_dir.mkdir(parents=True, exist_ok=True)
     (mem_dir / EFFORT_FILE).write_text(effort + "\n")
 
 
 def load_active_effort(memory_dir_path: str | os.PathLike[str]) -> str | None:
-    from hermesv2.memory import memory_dir as _mem_dir
+    from joshv1.memory import memory_dir as _mem_dir
     f = _mem_dir(memory_dir_path) / EFFORT_FILE
     if not f.is_file():
         return None
@@ -36,7 +36,7 @@ def load_active_effort(memory_dir_path: str | os.PathLike[str]) -> str | None:
     return val if val in VALID_EFFORTS else None
 
 
-DEFAULT_SYSTEM_PROMPT = """You are Hermes v2, a personal AI agent helping with work tasks.
+DEFAULT_SYSTEM_PROMPT = """You are Josh v1, a personal AI agent helping with work tasks.
 
 You have built-in tools for: reading and writing files, running shell commands,
 searching/fetching the web, editing text, and spawning sub-agents.
@@ -93,7 +93,7 @@ tracker"):
 Formatting (your output is rendered as Markdown in a styled terminal):
   - When introducing or naming a concept, feature, or product, wrap it in
     **bold** at first mention so it pops mid-sentence. Examples:
-      "**Persistent memory** across sessions. A ~/.hermes-memory/ ..."
+      "**Persistent memory** across sessions. A ~/.josh-memory/ ..."
       "**WebSearch** uses Anthropic's server-side search ..."
   - Use **bold** for specific factual values too: names, addresses,
     prices, dates, ratings, key numbers.
@@ -104,7 +104,7 @@ Formatting (your output is rendered as Markdown in a styled terminal):
 
 Persistent memory:
   - A <memory> block is appended below with your notes about this user.
-  - Only write to ~/.hermes-memory/ when the user EXPLICITLY asks you to
+  - Only write to ~/.josh-memory/ when the user EXPLICITLY asks you to
     remember / save / note / record something ("remember that…", "save
     this", "note that I prefer…"). Do NOT auto-update memory just
     because something looks durable or "worth remembering" — that
@@ -125,8 +125,8 @@ class AgentSettings:
     thinking: str = "adaptive"              # adaptive | disabled
     thinking_display: str = "summarized"    # summarized | omitted (Opus 4.7 default is omitted)
     permission_mode: str = "default"        # default | acceptEdits | plan | bypassPermissions
-    workspace_dir: str = "~/hermes-workspace"
-    memory_dir: str = "~/.hermes-memory"    # persistent USER.md + other notes; auto-loaded into system prompt
+    workspace_dir: str = "~/josh-workspace"
+    memory_dir: str = "~/.josh-memory"    # persistent USER.md + other notes; auto-loaded into system prompt
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     # MCP servers: name → {type: stdio|sse|http, command/url, args, env}
     mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -134,9 +134,9 @@ class AgentSettings:
     skills: list[str] | str = "all"
     # Extra directories the agent's Read/Write/Bash tools can touch outside cwd
     add_dirs: list[str] = field(default_factory=list)
-    # Ensemble draft pool for `/ensemble` and `hermesv2 ensemble`. Each entry is
+    # Ensemble draft pool for `/ensemble` and `joshv1 ensemble`. Each entry is
     # {provider, model, role}. Empty list = use the hardcoded default in
-    # hermesv2/ensemble.py. OpenRouter free model IDs churn frequently, so
+    # joshv1/ensemble.py. OpenRouter free model IDs churn frequently, so
     # configuring this in YAML lets you swap models without a code change.
     ensemble: list[dict[str, str]] = field(default_factory=list)
 
@@ -162,9 +162,9 @@ def _merge(data: dict[str, Any] | None, defaults: Any) -> Any:
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> Config:
-    # Walk-up search first (cwd → parents). `hermesv2 setup-provider` writes
+    # Walk-up search first (cwd → parents). `joshv1 setup-provider` writes
     # to ~/.env, so also explicitly load that as a fallback so the API keys
-    # are picked up no matter where hermesv2 is launched from. Existing env
+    # are picked up no matter where joshv1 is launched from. Existing env
     # vars take precedence over both.
     load_dotenv()
     home_env = Path.home() / ".env"
@@ -181,7 +181,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
             [
                 Path("config.local.yaml"),
                 Path("config.yaml"),
-                Path.home() / ".config" / "hermesv2" / "config.yaml",
+                Path.home() / ".config" / "joshv1" / "config.yaml",
             ]
         )
 

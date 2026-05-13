@@ -23,9 +23,9 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from hermesv2.agent import Agent
-from hermesv2.config import AgentSettings
-from hermesv2.providers import OpenAICompatProvider
+from joshv1.agent import Agent
+from joshv1.config import AgentSettings
+from joshv1.providers import OpenAICompatProvider
 
 
 @dataclass

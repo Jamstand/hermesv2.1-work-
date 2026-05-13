@@ -21,9 +21,9 @@ from typing import Any
 
 from openai import AsyncOpenAI, APIStatusError, APIConnectionError
 
-from hermesv2.agent import Event, TextDelta, TurnDone
-from hermesv2.config import AgentSettings
-from hermesv2.memory import ensure_user_md, memory_dir, memory_system_block
+from joshv1.agent import Event, TextDelta, TurnDone
+from joshv1.config import AgentSettings
+from joshv1.memory import ensure_user_md, memory_dir, memory_system_block
 
 
 @dataclass(frozen=True)
@@ -225,13 +225,13 @@ class OpenAICompatProvider:
                 f"\n[model not available: {self.settings.model}]\n"
                 f"{self.preset.label} has no endpoint for this model — it may have been "
                 f"retired or renamed.{extra}\n"
-                f"Switch with: hermesv2 setup-provider --provider {self.provider_name} --model <name>\n"
+                f"Switch with: joshv1 setup-provider --provider {self.provider_name} --model <name>\n"
             )
         if status == 401:
             return (
                 f"\n[auth failed (401)]\n"
                 f"{self.preset.label} rejected the API key. Re-run:\n"
-                f"  hermesv2 setup-provider --provider {self.provider_name} --key <new key>\n"
+                f"  joshv1 setup-provider --provider {self.provider_name} --key <new key>\n"
             )
         if status == 429:
             return (

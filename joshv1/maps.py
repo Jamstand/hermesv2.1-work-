@@ -22,7 +22,7 @@ from typing import Any
 
 import httpx
 
-USER_AGENT = "hermesv2/0.4 (+https://github.com/jamstand/hermesv2.1-work-)"
+USER_AGENT = "joshv1/0.4 (+https://github.com/jamstand/joshv1-work-)"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 PHOTON_URL    = "https://photon.komoot.io/api/"
 TILE_URL      = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -316,7 +316,7 @@ def _render_at(
 
     braille = png_to_braille(png, cols=cols, rows=rows)
     if braille is None:
-        result["error"] = "Pillow not installed; run `pip install 'hermesv2[maps]'`"
+        result["error"] = "Pillow not installed; run `pip install 'joshv1[maps]'`"
         return result
 
     result["braille"] = braille
@@ -325,7 +325,7 @@ def _render_at(
 
 
 def can_reach(url: str, timeout: float = 5.0) -> bool:
-    """Cheap network probe used by `hermesv2 doctor`."""
+    """Cheap network probe used by `joshv1 doctor`."""
     try:
         r = httpx.head(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, follow_redirects=True)
     except httpx.RequestError:

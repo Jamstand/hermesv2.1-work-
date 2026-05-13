@@ -29,8 +29,8 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from hermesv2.config import AgentSettings
-from hermesv2.memory import ensure_user_md, memory_dir, memory_system_block
+from joshv1.config import AgentSettings
+from joshv1.memory import ensure_user_md, memory_dir, memory_system_block
 
 DEFAULT_TOOLS = [
     # Files
@@ -181,7 +181,7 @@ class Agent:
         equivalent to set_model(), so we disconnect and reconnect with
         fresh options.
 
-        Caveat: the Claude CLI's --resume expects a UUID, and hermesv2's
+        Caveat: the Claude CLI's --resume expects a UUID, and joshv1's
         session_id format isn't one. So the new client starts with no
         memory of prior turns. The visible chat scrollback is unaffected.
         """

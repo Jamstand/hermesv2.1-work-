@@ -9,9 +9,9 @@ agent:
                                 # `default`        — prompts before destructive actions (good for CLI)
                                 # `acceptEdits`    — auto-approves file edits (good for bots)
                                 # `bypassPermissions` — never prompts; full trust (use carefully)
-  workspace_dir: ~/hermes-workspace   # cwd for Read/Write/Bash/Edit/Grep
+  workspace_dir: ~/josh-workspace   # cwd for Read/Write/Bash/Edit/Grep
   system_prompt: |
-    You are Hermes v2 (work edition), a personal AI agent helping with work tasks.
+    You are Josh v1 (work edition), a personal AI agent helping with work tasks.
 
     You have built-in tools for reading and writing files, running shell
     commands, searching/fetching the web, and editing text. Use them to
@@ -36,7 +36,7 @@ agent:
   # Persistent memory directory. Files in here (USER.md and any other .md)
   # are read and appended to the system prompt on every turn, and the agent
   # can update them via Write to remember things across sessions.
-  memory_dir: ~/.hermes-memory
+  memory_dir: ~/.josh-memory
 
   # Optional: MCP servers. The Agent SDK passes these to the spawned claude
   # subprocess. Each entry is a name → connection config.
