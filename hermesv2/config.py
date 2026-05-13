@@ -134,6 +134,11 @@ class AgentSettings:
     skills: list[str] | str = "all"
     # Extra directories the agent's Read/Write/Bash tools can touch outside cwd
     add_dirs: list[str] = field(default_factory=list)
+    # Ensemble draft pool for `/ensemble` and `hermesv2 ensemble`. Each entry is
+    # {provider, model, role}. Empty list = use the hardcoded default in
+    # hermesv2/ensemble.py. OpenRouter free model IDs churn frequently, so
+    # configuring this in YAML lets you swap models without a code change.
+    ensemble: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass

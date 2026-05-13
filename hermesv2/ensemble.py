@@ -176,7 +176,8 @@ async def run_ensemble(
     Returns: (final_answer, all_drafts) — `all_drafts` includes failures so the
     UI can show what went wrong, but `final_answer` is already a usable string.
     """
-    members = members or DEFAULT_ENSEMBLE
+    if members is None:
+        members = members_from_settings(base_settings)
 
     async def _with_callback(m: EnsembleMember) -> Draft:
         d = await _query_one(m, prompt, base_settings)
@@ -198,3 +199,32 @@ async def run_ensemble(
 
     final = await _synthesize(prompt, successful, base_settings)
     return final, drafts
+
+
+def members_from_settings(settings: AgentSettings) -> list[EnsembleMember]:
+    """Resolve ensemble members from YAML config, falling back to the default pool.
+
+    YAML shape (under `agent:`):
+        ensemble:
+          - provider: claude
+            model: claude-opus-4-7
+            role: reasoning, code review
+          - provider: openrouter
+            model: nousresearch/hermes-3-llama-3.1-405b:free
+            role: creative writing
+    """
+    if not settings.ensemble:
+        return list(DEFAULT_ENSEMBLE)
+    out: list[EnsembleMember] = []
+    for entry in settings.ensemble:
+        try:
+            out.append(EnsembleMember(
+                provider=entry["provider"],
+                model=entry["model"],
+                role=entry.get("role", ""),
+            ))
+        except (KeyError, TypeError):
+            # Skip malformed entries silently — better than crashing the whole
+            # ensemble because of one bad YAML line.
+            continue
+    return out or list(DEFAULT_ENSEMBLE)

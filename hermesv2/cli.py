@@ -928,10 +928,23 @@ def update() -> None:
 
 @main.command()
 @click.argument("prompt", nargs=-1)
+@click.option("--list", "list_members", is_flag=True,
+              help="Print the current ensemble member list and exit.")
 @click.pass_context
-def ensemble(ctx: click.Context, prompt: tuple[str, ...]) -> None:
+def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) -> None:
     """Fan out a prompt to multiple models in parallel; synthesize one answer."""
     from hermesv2 import ensemble as ens_mod
+
+    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
+
+    if list_members:
+        members = ens_mod.members_from_settings(cfg.agent)
+        source = "config.yaml `agent.ensemble`" if cfg.agent.ensemble else "built-in default"
+        console.print(f"\n[hermes.title]Ensemble members[/]  [dim]({source})[/]")
+        for m in members:
+            console.print(f"  [hermes.info]{m.provider:12s}[/]  {m.model:55s}  [dim]{m.role}[/]")
+        console.print()
+        return
 
     if prompt:
         message = " ".join(prompt)
@@ -940,8 +953,6 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...]) -> None:
     else:
         console.print("[hermes.error]No prompt given.[/]")
         sys.exit(2)
-
-    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
 
     async def _go() -> None:
         console.print(
