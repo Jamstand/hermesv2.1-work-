@@ -494,7 +494,7 @@ async def _handle_slash(
             if draft.success:
                 console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/] [dim]({len(draft.text)} chars)[/]")
             else:
-                short_err = (draft.error or "").splitlines()[0][:80]
+                short_err = _first_nonempty_line(draft.error or "")[:120]
                 console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/] [dim]— {short_err}[/]")
 
         answer, drafts = await ens_mod.run_ensemble(
@@ -950,7 +950,7 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...]) -> None:
             if draft.success:
                 console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/]")
             else:
-                short_err = (draft.error or "").splitlines()[0][:80]
+                short_err = _first_nonempty_line(draft.error or "")[:120]
                 console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/] [dim]— {short_err}[/]")
 
         answer, drafts = await ens_mod.run_ensemble(message, cfg.agent, on_draft_complete=_on_draft)
@@ -1074,6 +1074,15 @@ def _set_env_line(path: Path, key: str, value: str) -> None:
     if not found:
         lines.append(new_line)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _first_nonempty_line(text: str) -> str:
+    """First line of `text` that has visible content. Used for one-line error displays."""
+    for line in text.splitlines():
+        s = line.strip()
+        if s:
+            return s
+    return ""
 
 
 def _read_env_value(path: Path, key: str) -> str | None:
