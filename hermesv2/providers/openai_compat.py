@@ -203,10 +203,21 @@ class OpenAICompatProvider:
     def _friendly_api_error(self, e: APIStatusError) -> str:
         """Turn a raw 404/401/etc. into a one-paragraph hint."""
         status = getattr(e, "status_code", None)
-        body = getattr(e, "body", None) or {}
-        api_msg = (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
+        # Try several places the API message might live, falling back to
+        # str(e) (which always contains the raw response body for openai SDK).
+        api_msg = ""
+        body = getattr(e, "body", None)
+        if isinstance(body, dict):
+            inner = body.get("error")
+            if isinstance(inner, dict):
+                api_msg = inner.get("message", "") or ""
+            elif isinstance(inner, str):
+                api_msg = inner
+        if not api_msg:
+            api_msg = str(e)
+        haystack = api_msg.lower()
 
-        if status == 404 and "endpoints" in (api_msg or "").lower():
+        if status == 404 and ("endpoints" in haystack or "not found" in haystack or "no such model" in haystack):
             # OpenRouter shape: "No endpoints found for <model>."
             url = "https://openrouter.ai/models?max_price=0" if self.provider_name == "openrouter" else ""
             extra = f" See {url} for current free models." if url else ""
