@@ -44,12 +44,16 @@ DEFAULT_ENSEMBLE: list[EnsembleMember] = [
     ),
     EnsembleMember(
         provider="openrouter",
-        model="nousresearch/hermes-3-llama-3.1-405b:free",
-        role="creative writing, conversational fluency, agentic tone",
+        # 70B is less rate-limited than 405B. Override in config.yaml if you
+        # have a paid OpenRouter balance and want stronger creative output.
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        role="creative writing, conversational fluency",
     ),
     EnsembleMember(
         provider="openrouter",
-        model="deepseek/deepseek-chat-v3.1:free",
+        # DeepSeek pulled their free tier; Qwen Coder is the current free
+        # coding/math specialist.
+        model="qwen/qwen3-coder:free",
         role="code generation, math, technical detail",
     ),
 ]
