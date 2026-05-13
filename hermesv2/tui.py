@@ -643,6 +643,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/effort",     "Change agent effort (interactive picker; persistent)"),
     ("/update",     "git pull the latest hermesv2 from origin"),
     ("/audit",      "Have hermesv2 scan its own repo and report improvements"),
+    ("/ensemble",   "Fan out a prompt to multiple models, synthesize one answer (usage: /ensemble <prompt>)"),
 ]
 
 

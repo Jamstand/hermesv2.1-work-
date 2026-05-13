@@ -479,6 +479,36 @@ async def _handle_slash(
         console.print(f"  [dim]auditing[/] [hermes.info]{repo}[/]")
         return ("retry", audit_mod.prompt_for_repo(repo))
 
+    # --- Ensemble: fan out to multiple models, synthesize one answer -------
+    if cmd == "/ensemble":
+        if not arg:
+            console.print("  [hermes.highlight]usage:[/] /ensemble <prompt>")
+            return None
+        from hermesv2 import ensemble as ens_mod
+
+        console.print(
+            f"  [dim]polling {len(ens_mod.DEFAULT_ENSEMBLE)} models in parallel...[/]"
+        )
+
+        def _on_draft(member, draft):
+            if draft.success:
+                console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/] [dim]({len(draft.text)} chars)[/]")
+            else:
+                short_err = (draft.error or "").splitlines()[0][:80]
+                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/] [dim]— {short_err}[/]")
+
+        answer, drafts = await ens_mod.run_ensemble(
+            arg, cfg.agent, on_draft_complete=_on_draft,
+        )
+        n_ok = sum(1 for d in drafts if d.success)
+        console.print(
+            f"\n[hermes.title]Synthesized answer[/] "
+            f"[dim](from {n_ok}/{len(drafts)} drafts)[/]\n"
+        )
+        console.print(answer)
+        console.print()
+        return None
+
     # --- Image / screenshot ------------------------------------------------
     if cmd == "/img":
         if not arg:
@@ -892,6 +922,44 @@ def _find_repo_root() -> Path | None:
 def update() -> None:
     """`git pull` the latest hermesv2 from origin."""
     _run_update()
+
+
+@main.command()
+@click.argument("prompt", nargs=-1)
+@click.pass_context
+def ensemble(ctx: click.Context, prompt: tuple[str, ...]) -> None:
+    """Fan out a prompt to multiple models in parallel; synthesize one answer."""
+    from hermesv2 import ensemble as ens_mod
+
+    if prompt:
+        message = " ".join(prompt)
+    elif not sys.stdin.isatty():
+        message = sys.stdin.read().strip()
+    else:
+        console.print("[hermes.error]No prompt given.[/]")
+        sys.exit(2)
+
+    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
+
+    async def _go() -> None:
+        console.print(
+            f"  [dim]polling {len(ens_mod.DEFAULT_ENSEMBLE)} models in parallel...[/]"
+        )
+
+        def _on_draft(member, draft):
+            if draft.success:
+                console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/]")
+            else:
+                short_err = (draft.error or "").splitlines()[0][:80]
+                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/] [dim]— {short_err}[/]")
+
+        answer, drafts = await ens_mod.run_ensemble(message, cfg.agent, on_draft_complete=_on_draft)
+        n_ok = sum(1 for d in drafts if d.success)
+        console.print(f"\n[hermes.title]Synthesized answer[/] [dim](from {n_ok}/{len(drafts)} drafts)[/]\n")
+        console.print(answer)
+        console.print()
+
+    asyncio.run(_go())
 
 
 @main.command("setup-provider")
