@@ -494,8 +494,10 @@ async def _handle_slash(
             if draft.success:
                 console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/] [dim]({len(draft.text)} chars)[/]")
             else:
-                short_err = _first_nonempty_line(draft.error or "")[:120]
-                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/] [dim]— {short_err}[/]")
+                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/]")
+                console.print(f"      [dim]error: {draft.error!r}[/]")
+                if draft.text:
+                    console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
 
         answer, drafts = await ens_mod.run_ensemble(
             arg, cfg.agent, on_draft_complete=_on_draft,
@@ -950,8 +952,10 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...]) -> None:
             if draft.success:
                 console.print(f"  [hermes.success]✓[/] [hermes.info]{member.model}[/]")
             else:
-                short_err = _first_nonempty_line(draft.error or "")[:120]
-                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/] [dim]— {short_err}[/]")
+                console.print(f"  [hermes.error]✗[/] [hermes.info]{member.model}[/]")
+                console.print(f"      [dim]error: {draft.error!r}[/]")
+                if draft.text:
+                    console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
 
         answer, drafts = await ens_mod.run_ensemble(message, cfg.agent, on_draft_complete=_on_draft)
         n_ok = sum(1 for d in drafts if d.success)

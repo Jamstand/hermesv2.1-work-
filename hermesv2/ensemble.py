@@ -109,8 +109,6 @@ async def _query_one(
     member: EnsembleMember, prompt: str, base: AgentSettings,
 ) -> Draft:
     """Run one ensemble member. Returns a Draft (success=False on any error)."""
-    # Tailored system prompt + no memory dir noise — drafts should answer
-    # the question, not act like the full hermesv2 agent.
     settings = replace(
         base,
         provider=member.provider,
@@ -121,14 +119,31 @@ async def _query_one(
         Agent(settings) if member.provider == "claude"
         else OpenAICompatProvider(settings, provider_name=member.provider)
     )
+    # Track which phase fails so the error message actually identifies the cause.
+    phase = "init"
     try:
-        async with backend:
+        phase = "connect"
+        await backend.connect()
+        try:
+            phase = "run"
             result = await backend.run(prompt)
+        finally:
+            phase = "disconnect"
+            try:
+                await backend.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+        if not result:
+            return Draft(label=member.model, role=member.role, text="",
+                         success=False, error="empty response from model")
         if _looks_like_error(result):
-            return Draft(label=member.model, role=member.role, text="", success=False, error=result.strip())
+            return Draft(label=member.model, role=member.role, text="",
+                         success=False, error=result.strip())
         return Draft(label=member.model, role=member.role, text=result, success=True)
     except Exception as e:  # noqa: BLE001
-        return Draft(label=member.model, role=member.role, text="", success=False, error=f"{type(e).__name__}: {e}")
+        return Draft(label=member.model, role=member.role, text="",
+                     success=False,
+                     error=f"[{phase}] {type(e).__name__}: {e or '<no message>'}")
 
 
 async def _synthesize(prompt: str, drafts: list[Draft], base: AgentSettings) -> str:
