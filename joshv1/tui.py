@@ -31,17 +31,17 @@ from joshv1.config import AgentSettings
 # file. See joshv1/themes.py for the available palettes.
 
 BANNER = r"""
-██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗   ██╗   ██╗██████╗     ██╗
-██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝   ██║   ██║╚════██╗   ███║
-███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗   ██║   ██║ █████╔╝   ╚██║
-██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║   ╚██╗ ██╔╝██╔═══╝     ██║
-██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║██╗ ╚████╔╝ ███████╗██╗ ██║
-╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝╚═╝ ╚═╝
-                                                       W   O   R   K
+     ██╗ ██████╗ ███████╗██╗  ██╗   ██╗   ██╗    ██╗
+     ██║██╔═══██╗██╔════╝██║  ██║   ██║   ██║   ███║
+     ██║██║   ██║███████╗███████║   ██║   ██║   ╚██║
+██   ██║██║   ██║╚════██║██╔══██║   ╚██╗ ██╔╝    ██║
+╚█████╔╝╚██████╔╝███████║██║  ██║██╗ ╚████╔╝ ██╗ ██║
+ ╚════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝  ╚═╝ ╚═╝
+                   W   O   R   K
 """
 
-# Detailed V2 logo for the welcome panel: ANSI-Shadow "V" stacked on "2",
-# framed by a winged emblem border with JOSH / WORK / v2.1 wordmark below.
+# Detailed V1 logo for the welcome panel: ANSI-Shadow "V" stacked on "1",
+# framed by a winged emblem border with JOSH / WORK / v1 wordmark below.
 # About 22 lines tall × 23 cols wide — fits in a side column on most terminals.
 LOGO = r"""
        ╔═════════╗
@@ -52,18 +52,18 @@ LOGO = r"""
   ║     ╚██╗ ██╔╝     ║
   ║      ╚████╔╝      ║
   ║       ╚═══╝       ║
+  ║        ██╗        ║
+  ║       ███║        ║
+  ║        ██║        ║
+  ║        ██║        ║
   ║      ██████╗      ║
-  ║      ╚════██╗     ║
-  ║       █████╔╝     ║
-  ║      ██╔═══╝      ║
-  ║      ███████╗     ║
   ╚═╗    ╚══════╝   ╔═╝
     ╚══╗         ╔══╝
        ╚═════════╝
       ━━━━━━━━━━━━━━
        ◈  JOSH   ◈
        ◈   WORK   ◈
-            v2.1
+             v1
 """
 
 TOOL_GROUPS: dict[str, list[str]] = {
