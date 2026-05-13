@@ -30,7 +30,26 @@ from hermesv2.agent import (
     ToolResult,
     TurnDone,
 )
-from hermesv2.config import VALID_EFFORTS, Config, load_config, save_active_effort
+from hermesv2.config import VALID_EFFORTS, AgentSettings, Config, load_config, save_active_effort
+from hermesv2.providers import PROVIDER_PRESETS, OpenAICompatProvider
+
+
+def build_backend(settings: AgentSettings, cwd: str | Path | None = None,
+                  resume_session_id: str | None = None):
+    """Pick the right backend based on settings.provider.
+
+    Returns either an `Agent` (Claude, full tool-use via Agent SDK) or an
+    `OpenAICompatProvider` (OpenRouter / Ollama / Gemini, text-only in
+    phase 1). Both expose `connect / disconnect / run_stream / reset_session`.
+    """
+    if settings.provider == "claude":
+        return Agent(settings, cwd=cwd, resume_session_id=resume_session_id)
+    if settings.provider in PROVIDER_PRESETS:
+        return OpenAICompatProvider(settings, provider_name=settings.provider, cwd=cwd)
+    raise ValueError(
+        f"Unknown provider: {settings.provider!r}. "
+        f"Valid: claude, {', '.join(PROVIDER_PRESETS)}"
+    )
 
 # Active theme is loaded from ~/.hermes-memory/theme (set via `/theme <name>`).
 # The Console is built with a Rich Theme that maps every `hermes.*` and
@@ -232,7 +251,7 @@ def run(ctx: click.Context, prompt: tuple[str, ...]) -> None:
 
 
 async def _run_one(cfg: Config, message: str) -> None:
-    async with Agent(cfg.agent, cwd=cfg.agent.workspace_dir) as agent:
+    async with build_backend(cfg.agent, cwd=cfg.agent.workspace_dir) as agent:
         async for event in agent.run_stream(message):
             _render_event_plain(event)
     console.print()
@@ -266,7 +285,7 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
         style=DROPDOWN_STYLE,
     )
 
-    async with Agent(
+    async with build_backend(
         cfg.agent,
         cwd=cfg.agent.workspace_dir,
         resume_session_id=session_name,
@@ -685,16 +704,26 @@ async def _handle_slash(
                 console.print(f"  [dim]already on[/] [hermes.info]{chosen}[/]")
                 return None
             arg = chosen
-        if agent._client is None:
-            console.print("[hermes.error]Agent not connected.[/]")
-            return None
+        if isinstance(agent, Agent):
+            if agent._client is None:
+                console.print("[hermes.error]Agent not connected.[/]")
+                return None
+            try:
+                await agent._client.set_model(arg)
+                console.print(f"  [hermes.success]switched model to[/] [hermes.info]{arg}[/]")
+                return ("model", arg)
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[hermes.error]Failed to switch model: {e}[/]")
+                return None
+        # Non-Claude backend: update settings and reconnect.
+        agent.settings.model = arg
         try:
-            await agent._client.set_model(arg)
-            console.print(f"  [hermes.success]switched model to[/] [hermes.info]{arg}[/]")
-            return ("model", arg)
+            await agent.reconfigure()
         except Exception as e:  # noqa: BLE001
             console.print(f"[hermes.error]Failed to switch model: {e}[/]")
             return None
+        console.print(f"  [hermes.success]switched model to[/] [hermes.info]{arg}[/]")
+        return ("model", arg)
     if cmd == "/effort":
         # No-arg form opens the picker dialog. Pass an effort name to skip it.
         if not arg:
@@ -709,6 +738,9 @@ async def _handle_slash(
         if arg not in VALID_EFFORTS:
             console.print(f"  [hermes.error]unknown effort:[/] [hermes.info]{arg}[/]")
             console.print(f"  [dim]valid:[/] {', '.join(VALID_EFFORTS)}")
+            return None
+        if not isinstance(agent, Agent):
+            console.print("  [dim]effort is a Claude-only setting; non-Claude providers don't use it.[/]")
             return None
         if agent._client is None:
             console.print("[hermes.error]Agent not connected.[/]")
@@ -757,13 +789,16 @@ async def _list_sessions_async() -> None:
 VALID_PERMISSION_MODES = {"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"}
 
 
-async def _set_perm(agent: Agent, mode: str) -> str | None:
+async def _set_perm(agent, mode: str) -> str | None:
     """Switch the agent's permission mode mid-session. Returns 'permission' on success."""
     if mode not in VALID_PERMISSION_MODES:
         console.print(
             f"  [hermes.error]unknown mode '{mode}'.[/] "
             f"[dim]Valid: {', '.join(sorted(VALID_PERMISSION_MODES))}.[/]"
         )
+        return None
+    if not isinstance(agent, Agent):
+        console.print("  [dim]permission modes only apply to the Claude backend.[/]")
         return None
     if agent._client is None:
         console.print("[hermes.error]Agent not connected.[/]")
@@ -785,9 +820,9 @@ async def _set_perm(agent: Agent, mode: str) -> str | None:
     return "permission"
 
 
-async def _ctx_pct(agent: Agent) -> float | None:
+async def _ctx_pct(agent) -> float | None:
     """Best-effort context-usage percentage. Returns None if unsupported."""
-    if agent._client is None:
+    if not isinstance(agent, Agent) or agent._client is None:
         return None
     try:
         usage = await _maybe_await(agent._client.get_context_usage())
@@ -806,8 +841,8 @@ async def _ctx_pct(agent: Agent) -> float | None:
     return None
 
 
-async def _get_context_usage(agent: Agent) -> str | None:
-    if agent._client is None:
+async def _get_context_usage(agent) -> str | None:
+    if not isinstance(agent, Agent) or agent._client is None:
         return None
     try:
         usage = await _maybe_await(agent._client.get_context_usage())
@@ -891,7 +926,7 @@ async def _run_audit(cfg: Config, repo: Path, save: bool) -> None:
 
     console.print(f"  [dim]auditing[/] [hermes.info]{repo}[/]")
     transcript: list[str] = []
-    async with Agent(cfg.agent, cwd=repo) as agent:
+    async with build_backend(cfg.agent, cwd=repo) as agent:
         async for event in agent.run_stream(audit_mod.AUDIT_PROMPT):
             _render_event_plain(event)
             if isinstance(event, TextDelta):

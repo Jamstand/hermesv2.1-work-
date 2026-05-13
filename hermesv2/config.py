@@ -97,6 +97,9 @@ Persistent memory:
 
 @dataclass
 class AgentSettings:
+    # "claude" (default, full tool-use via Agent SDK) or "openrouter" / "ollama"
+    # / "gemini" (OpenAI-compatible backends, text-only in phase 1).
+    provider: str = "claude"
     model: str = "claude-opus-4-7"
     effort: str = "high"                    # low | medium | high | xhigh | max
     thinking: str = "adaptive"              # adaptive | disabled
