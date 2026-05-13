@@ -939,19 +939,26 @@ def setup_provider(provider_name: str | None, model_name: str | None, api_key: s
     model = model_name or preset.default_model
 
     if preset.api_key_env and api_key is None:
-        console.print(
-            f"\n[hermes.title]API key[/]  [dim]({preset.api_key_env})[/]\n"
-            f"  [dim]Get one at:[/] {_signup_url(provider_name)}"
-        )
-        try:
-            api_key = click.prompt("paste your key", hide_input=True, default="", show_default=False)
-        except click.Abort:
-            console.print("[dim]cancelled.[/]")
-            return
-        api_key = api_key.strip()
-        if not api_key:
-            console.print(f"[hermes.error]No key given. Aborting.[/]")
-            return
+        # Skip the prompt if the key is already in ~/.env (or the shell env)
+        # — common case when changing just the model.
+        existing = _read_env_value(Path.home() / ".env", preset.api_key_env) or os.environ.get(preset.api_key_env)
+        if existing:
+            console.print(f"  [dim]keeping existing[/] [hermes.info]{preset.api_key_env}[/] [dim]from ~/.env[/]")
+            api_key = existing
+        else:
+            console.print(
+                f"\n[hermes.title]API key[/]  [dim]({preset.api_key_env})[/]\n"
+                f"  [dim]Get one at:[/] {_signup_url(provider_name)}"
+            )
+            try:
+                api_key = click.prompt("paste your key", hide_input=True, default="", show_default=False)
+            except click.Abort:
+                console.print("[dim]cancelled.[/]")
+                return
+            api_key = api_key.strip()
+            if not api_key:
+                console.print(f"[hermes.error]No key given. Aborting.[/]")
+                return
 
     # Write config.yaml
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -999,6 +1006,16 @@ def _set_env_line(path: Path, key: str, value: str) -> None:
     if not found:
         lines.append(new_line)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _read_env_value(path: Path, key: str) -> str | None:
+    """Return the value for KEY=... in the file, or None if not present."""
+    if not path.is_file():
+        return None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1].strip()
+    return None
 
 
 @main.command()

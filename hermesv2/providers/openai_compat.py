@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError, APIConnectionError
 
 from hermesv2.agent import Event, TextDelta, TurnDone
 from hermesv2.config import AgentSettings
@@ -39,7 +39,10 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
     "openrouter": ProviderPreset(
         base_url="https://openrouter.ai/api/v1",
         api_key_env="OPENROUTER_API_KEY",
-        default_model="google/gemini-2.0-flash-exp:free",
+        # OpenRouter's free-tier lineup churns — see https://openrouter.ai/models?max_price=0.
+        # Llama 3.3 70B has been stably free for a while; safer than Gemini Flash
+        # exp slots which get rotated.
+        default_model="meta-llama/llama-3.3-70b-instruct:free",
         label="OpenRouter (free tier)",
     ),
     "ollama": ProviderPreset(
@@ -148,18 +151,34 @@ class OpenAICompatProvider:
         history.append({"role": "user", "content": user_message})
 
         text_parts: list[str] = []
-        stream = await self._client.chat.completions.create(
-            model=self.settings.model,
-            messages=history,
-            stream=True,
-        )
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                text_parts.append(delta.content)
-                yield TextDelta(delta.content)
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self.settings.model,
+                messages=history,
+                stream=True,
+            )
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    text_parts.append(delta.content)
+                    yield TextDelta(delta.content)
+        except APIStatusError as e:
+            msg = self._friendly_api_error(e)
+            text_parts.append(msg)
+            yield TextDelta(msg)
+            # Pop the user message so the failed turn doesn't poison history.
+            history.pop()
+        except APIConnectionError as e:
+            msg = (
+                f"\n[connection error: {e}]\n"
+                f"Can't reach {self.preset.base_url}. "
+                + ("Is Ollama running? Try `ollama serve`." if self.provider_name == "ollama" else "Check your network.")
+            )
+            text_parts.append(msg)
+            yield TextDelta(msg)
+            history.pop()
 
         final_text = "".join(text_parts)
         history.append({"role": "assistant", "content": final_text})
@@ -180,3 +199,33 @@ class OpenAICompatProvider:
             "role": "system",
             "content": self.settings.system_prompt + memory_system_block(mem_dir),
         }
+
+    def _friendly_api_error(self, e: APIStatusError) -> str:
+        """Turn a raw 404/401/etc. into a one-paragraph hint."""
+        status = getattr(e, "status_code", None)
+        body = getattr(e, "body", None) or {}
+        api_msg = (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
+
+        if status == 404 and "endpoints" in (api_msg or "").lower():
+            # OpenRouter shape: "No endpoints found for <model>."
+            url = "https://openrouter.ai/models?max_price=0" if self.provider_name == "openrouter" else ""
+            extra = f" See {url} for current free models." if url else ""
+            return (
+                f"\n[model not available: {self.settings.model}]\n"
+                f"{self.preset.label} has no endpoint for this model — it may have been "
+                f"retired or renamed.{extra}\n"
+                f"Switch with: hermesv2 setup-provider --provider {self.provider_name} --model <name>\n"
+            )
+        if status == 401:
+            return (
+                f"\n[auth failed (401)]\n"
+                f"{self.preset.label} rejected the API key. Re-run:\n"
+                f"  hermesv2 setup-provider --provider {self.provider_name} --key <new key>\n"
+            )
+        if status == 429:
+            return (
+                f"\n[rate limited (429)]\n"
+                f"{self.preset.label} throttled this request. "
+                f"Wait a minute, then retry — or try a different free model.\n"
+            )
+        return f"\n[{self.preset.label} error {status}: {api_msg or e}]\n"
