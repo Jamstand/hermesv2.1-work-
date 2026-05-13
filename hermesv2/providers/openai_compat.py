@@ -40,9 +40,9 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         base_url="https://openrouter.ai/api/v1",
         api_key_env="OPENROUTER_API_KEY",
         # OpenRouter's free-tier lineup churns — see https://openrouter.ai/models?max_price=0.
-        # Llama 3.3 70B has been stably free for a while; safer than Gemini Flash
-        # exp slots which get rotated.
-        default_model="meta-llama/llama-3.3-70b-instruct:free",
+        # Llama 4 Maverick is the current free flagship (Meta, multimodal, beats
+        # Gemini 2.0 Flash in benchmarks).
+        default_model="meta-llama/llama-4-maverick:free",
         label="OpenRouter (free tier)",
     ),
     "ollama": ProviderPreset(
