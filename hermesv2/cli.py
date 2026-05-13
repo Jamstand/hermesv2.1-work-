@@ -450,6 +450,16 @@ async def _handle_slash(
             return None
         return ("retry", user_history[-1])
 
+    # --- Self-audit --------------------------------------------------------
+    if cmd == "/audit":
+        from hermesv2 import audit as audit_mod
+        repo = audit_mod.find_hermes_repo()
+        if repo is None:
+            console.print("[hermes.error]Couldn't find the hermesv2 repo on disk.[/]")
+            return None
+        console.print(f"  [dim]auditing[/] [hermes.info]{repo}[/]")
+        return ("retry", audit_mod.prompt_for_repo(repo))
+
     # --- Image / screenshot ------------------------------------------------
     if cmd == "/img":
         if not arg:
@@ -847,6 +857,51 @@ def _find_repo_root() -> Path | None:
 def update() -> None:
     """`git pull` the latest hermesv2 from origin."""
     _run_update()
+
+
+@main.command()
+@click.option("--path", "repo_path", default=None,
+              help="Repo to audit. Defaults to the hermesv2 repo this binary lives in.")
+@click.option("--save/--no-save", default=True,
+              help="Write the report to ~/.hermes-memory/audits/<timestamp>.md.")
+@click.pass_context
+def audit(ctx: click.Context, repo_path: str | None, save: bool) -> None:
+    """Scan hermesv2 (or another repo) and report concrete improvements."""
+    from hermesv2 import audit as audit_mod
+
+    if repo_path:
+        repo = Path(repo_path).expanduser().resolve()
+    else:
+        found = audit_mod.find_hermes_repo()
+        if found is None:
+            console.print("[hermes.error]Couldn't find the hermesv2 repo. Pass --path explicitly.[/]")
+            sys.exit(2)
+        repo = found
+
+    if not repo.is_dir():
+        console.print(f"[hermes.error]Not a directory: {repo}[/]")
+        sys.exit(2)
+
+    cfg = load_config(ctx.obj.get("config_path") if ctx.obj else None)
+    asyncio.run(_run_audit(cfg, repo, save))
+
+
+async def _run_audit(cfg: Config, repo: Path, save: bool) -> None:
+    from hermesv2 import audit as audit_mod
+
+    console.print(f"  [dim]auditing[/] [hermes.info]{repo}[/]")
+    transcript: list[str] = []
+    async with Agent(cfg.agent, cwd=repo) as agent:
+        async for event in agent.run_stream(audit_mod.AUDIT_PROMPT):
+            _render_event_plain(event)
+            if isinstance(event, TextDelta):
+                transcript.append(event.text)
+    console.print()
+
+    if save:
+        path = audit_mod.next_report_path(cfg.agent.memory_dir)
+        path.write_text("".join(transcript), encoding="utf-8")
+        console.print(f"  [hermes.success]report saved[/] [hermes.info]{path}[/]")
 
 
 def _print_theme_list() -> None:

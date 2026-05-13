@@ -642,6 +642,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/model",      "Switch model mid-session (usage: /model <name>)"),
     ("/effort",     "Change agent effort (interactive picker; persistent)"),
     ("/update",     "git pull the latest hermesv2 from origin"),
+    ("/audit",      "Have hermesv2 scan its own repo and report improvements"),
 ]
 
 
