@@ -638,6 +638,120 @@ def format_picker_answers(questions: list[dict], answers: dict[str, str | list[s
     return "\n".join(parts)
 
 
+def _format_tool_input(name: str, tool_input: dict) -> str:
+    """Compact, readable preview of a tool's input arguments. Falls back to
+    a truncated dict dump for tool names we don't know."""
+
+    def _line(s: str, max_len: int = 100) -> str:
+        s = s.replace("\n", " ⏎ ")
+        return s if len(s) <= max_len else s[:max_len] + "…"
+
+    if name == "Bash":
+        cmd = tool_input.get("command", "")
+        desc = tool_input.get("description", "")
+        first = _line(cmd.split("\n", 1)[0], 120)
+        out = f"[josh.text]{first}[/]"
+        if "\n" in cmd:
+            extra_lines = cmd.count("\n")
+            out += f" [dim](+{extra_lines} more line{'s' if extra_lines > 1 else ''})[/]"
+        if desc:
+            out += f"\n      [dim]↳ {desc}[/]"
+        return out
+
+    if name == "Read":
+        path = tool_input.get("file_path", "")
+        offset = tool_input.get("offset")
+        limit = tool_input.get("limit")
+        out = f"[josh.info]{path}[/]"
+        if offset or limit:
+            out += f" [dim](lines {offset or 1}{f'..+{limit}' if limit else ''})[/]"
+        return out
+
+    if name == "Write":
+        path = tool_input.get("file_path", "")
+        content = tool_input.get("content", "")
+        n_lines = content.count("\n") + (1 if content else 0)
+        return f"[josh.info]{path}[/] [dim]({len(content)} chars, {n_lines} line{'s' if n_lines != 1 else ''})[/]"
+
+    if name == "Edit":
+        path = tool_input.get("file_path", "")
+        old = _line(tool_input.get("old_string", ""), 70)
+        new = _line(tool_input.get("new_string", ""), 70)
+        replace_all = tool_input.get("replace_all", False)
+        all_marker = " [dim](all)[/]" if replace_all else ""
+        return (f"[josh.info]{path}[/]{all_marker}\n"
+                f"      [josh.error.bold]- [/][dim]{old}[/]\n"
+                f"      [josh.success]+ [/][dim]{new}[/]")
+
+    if name == "NotebookEdit":
+        path = tool_input.get("notebook_path", "")
+        cell = tool_input.get("cell_id") or tool_input.get("cell_number", "")
+        return f"[josh.info]{path}[/] [dim]cell {cell}[/]"
+
+    if name == "Grep":
+        pattern = tool_input.get("pattern", "")
+        path = tool_input.get("path", "")
+        mode = tool_input.get("output_mode", "")
+        out = f"[josh.text]{_line(pattern, 80)}[/]"
+        if path:
+            out += f" [dim]in {path}[/]"
+        if mode and mode != "files_with_matches":
+            out += f" [dim]({mode})[/]"
+        return out
+
+    if name == "Glob":
+        pattern = tool_input.get("pattern", "")
+        path = tool_input.get("path", "")
+        return f"[josh.text]{pattern}[/]" + (f" [dim]in {path}[/]" if path else "")
+
+    if name == "WebFetch":
+        url = tool_input.get("url", "")
+        prompt = tool_input.get("prompt", "")
+        out = f"[josh.info]{url}[/]"
+        if prompt:
+            out += f"\n      [dim]↳ {_line(prompt, 90)}[/]"
+        return out
+
+    if name == "WebSearch":
+        query = tool_input.get("query", "")
+        return f"[josh.text]{_line(query, 100)}[/]"
+
+    if name == "TodoWrite":
+        todos = tool_input.get("todos", [])
+        if not todos:
+            return "[dim](empty)[/]"
+        active = next((t for t in todos if t.get("status") == "in_progress"), None)
+        lines = [f"[dim]{len(todos)} todo{'s' if len(todos) != 1 else ''}[/]"]
+        if active:
+            lines.append(f"      [josh.warm]▶[/] {_line(active.get('content', ''), 80)}")
+        else:
+            first = todos[0]
+            lines.append(f"      [dim]·[/] {_line(first.get('content', ''), 80)}")
+        return "\n".join(lines)
+
+    if name == "Task":
+        agent_type = tool_input.get("subagent_type", "agent")
+        desc = tool_input.get("description", "")
+        return f"[josh.secondary]{agent_type}[/] [dim]— {_line(desc, 100)}[/]"
+
+    if name == "Skill":
+        skill = tool_input.get("skill", "")
+        args = tool_input.get("args", "")
+        out = f"[josh.secondary]{skill}[/]"
+        if args:
+            out += f" [dim]{_line(str(args), 80)}[/]"
+        return out
+
+    if name == "SlashCommand":
+        return f"[josh.highlight]{_line(tool_input.get('command', ''), 120)}[/]"
+
+    # Unknown tool — fall back to truncated repr
+    preview = str(tool_input)
+    if len(preview) > 200:
+        preview = preview[:200] + "…"
+    return f"[dim]{preview}[/]"
+
+
 def render_tool_call(console: Console, name: str, tool_input: dict) -> None:
     # Special-case AskUserQuestion so the question + options render as a
     # readable prompt instead of a raw dict dump.
@@ -658,6 +772,11 @@ def render_tool_call(console: Console, name: str, tool_input: dict) -> None:
                     console.print(f"    • [bold]{label}[/] [dim]— {desc}[/]")
                 console.print()
             return
+
+    if isinstance(tool_input, dict):
+        formatted = _format_tool_input(name, tool_input)
+        console.print(f"\n  [josh.info]⚙ {name}[/]  {formatted}")
+        return
 
     preview = str(tool_input)
     if len(preview) > 200:
