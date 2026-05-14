@@ -44,17 +44,26 @@ DEFAULT_ENSEMBLE: list[EnsembleMember] = [
     ),
     EnsembleMember(
         provider="openrouter",
-        # 70B is less rate-limited than 405B. Override in config.yaml if you
-        # have a paid OpenRouter balance and want stronger creative output.
-        model="meta-llama/llama-3.3-70b-instruct:free",
-        role="creative writing, conversational fluency",
+        # Gemini 3.1 Flash Lite: speed-optimized + multimodal (audio/video/PDF).
+        # Fills the two biggest gaps Opus has — latency and non-text input.
+        # PAID tier (no `:free` suffix); needs an OpenRouter balance.
+        model="google/gemini-3.1-flash-lite",
+        role="fast drafts, multimodal input (audio/video/PDF), low-latency generalist",
     ),
     EnsembleMember(
         provider="openrouter",
-        # DeepSeek pulled their free tier; Qwen Coder is the current free
-        # coding/math specialist.
+        # Qwen3-Coder is a coding-specialized model — math removed from the
+        # role since the Coder variant isn't math-RL'd (that's Qwen3-Math).
         model="qwen/qwen3-coder:free",
-        role="code generation, math, technical detail",
+        role="code generation, technical detail",
+    ),
+    EnsembleMember(
+        provider="openrouter",
+        # DeepSeek V4 Pro: 1.6T MoE, math-RL'd, cost-efficient at scale.
+        # Different lab from Anthropic / Google / Alibaba for breadth.
+        # PAID tier (no `:free` suffix); ~40× cheaper per token than Opus.
+        model="deepseek/deepseek-v4-pro",
+        role="math, quantitative reasoning, cost-efficient MoE perspective",
     ),
 ]
 
@@ -169,6 +178,29 @@ async def _synthesize(prompt: str, drafts: list[Draft], base: AgentSettings) -> 
         return await judge.run(synth_user)
 
 
+async def collect_drafts(
+    prompt: str,
+    base_settings: AgentSettings,
+    members: list[EnsembleMember] | None = None,
+    on_draft_complete: Callable[[EnsembleMember, Draft], None] | None = None,
+) -> list[Draft]:
+    """Query all ensemble members in parallel; return raw drafts (no synthesis).
+
+    Used by the auto-routing path that feeds drafts into the main Claude session
+    as context instead of synthesizing one merged answer.
+    """
+    if members is None:
+        members = members_from_settings(base_settings)
+
+    async def _with_callback(m: EnsembleMember) -> Draft:
+        d = await _query_one(m, prompt, base_settings)
+        if on_draft_complete is not None:
+            on_draft_complete(m, d)
+        return d
+
+    return list(await asyncio.gather(*(_with_callback(m) for m in members)))
+
+
 async def run_ensemble(
     prompt: str,
     base_settings: AgentSettings,
@@ -180,16 +212,7 @@ async def run_ensemble(
     Returns: (final_answer, all_drafts) — `all_drafts` includes failures so the
     UI can show what went wrong, but `final_answer` is already a usable string.
     """
-    if members is None:
-        members = members_from_settings(base_settings)
-
-    async def _with_callback(m: EnsembleMember) -> Draft:
-        d = await _query_one(m, prompt, base_settings)
-        if on_draft_complete is not None:
-            on_draft_complete(m, d)
-        return d
-
-    drafts = await asyncio.gather(*(_with_callback(m) for m in members))
+    drafts = await collect_drafts(prompt, base_settings, members, on_draft_complete)
     successful = [d for d in drafts if d.success]
 
     if not successful:
@@ -203,6 +226,37 @@ async def run_ensemble(
 
     final = await _synthesize(prompt, successful, base_settings)
     return final, drafts
+
+
+def format_drafts_as_context(
+    user_message: str, successful_drafts: list[Draft],
+) -> str:
+    """Wrap successful drafts into an augmented prompt for the main Claude session.
+
+    The main session sees: original user message + drafts appendix telling it
+    to use them as context but reply in its own voice with full tool access.
+    Returns the augmented user message string.
+    """
+    drafts_block = "\n\n".join(
+        f"--- DRAFT {i+1}: {d.label} ({d.role}) ---\n{d.text}"
+        for i, d in enumerate(successful_drafts)
+    )
+    return (
+        f"{user_message}\n\n"
+        "---\n"
+        "[ENSEMBLE CONTEXT — system-injected, not from the user]\n"
+        f"Several peer expert models drafted answers to my message above in "
+        f"parallel. They have no tools, no memory of this conversation, and "
+        f"no awareness of each other. Their drafts:\n\n"
+        f"{drafts_block}\n\n"
+        "Use these as input. You retain full tool access, this session's "
+        "scrollback, and your normal voice. Pull the best phrasings/facts/"
+        "code; correct mistakes; verify with tools if a draft makes a "
+        "claim you can check. Do NOT enumerate the drafts (\"Draft 1 says…\"), "
+        "do NOT mention that other models were consulted, do NOT prefix with "
+        "\"Synthesized answer:\". Just answer the user's message naturally, "
+        "as if the drafts never existed but happened to inform you.\n"
+    )
 
 
 def members_from_settings(settings: AgentSettings) -> list[EnsembleMember]:

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import platform
 import secrets
 import shutil
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,7 +33,16 @@ from joshv1.agent import (
     ToolResult,
     TurnDone,
 )
-from joshv1.config import VALID_EFFORTS, AgentSettings, Config, load_config, save_active_effort
+from joshv1.config import (
+    VALID_EFFORTS,
+    AgentSettings,
+    Config,
+    clear_ensemble_members_override,
+    load_config,
+    save_active_effort,
+    save_active_ensemble_mode,
+    save_ensemble_members_override,
+)
 from joshv1.providers import PROVIDER_PRESETS, OpenAICompatProvider
 
 
@@ -185,6 +197,86 @@ def _render_event_tui(event: object, stats: SessionStats) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# REPL state — passed through the chat loop and slash dispatcher together so
+# new commands (queue/steer/background/snapshot/etc.) can mutate it without
+# expanding `_handle_slash`'s parameter list every time.
+# ---------------------------------------------------------------------------
+
+PERSONALITIES: dict[str, str] = {
+    "default": "",  # use cfg.agent.system_prompt verbatim
+    "concise": (
+        "Be aggressively terse. One sentence answers when possible. No "
+        "preamble, no caveats, no closing pleasantries."
+    ),
+    "playful": (
+        "Be friendly, warm, and a little playful. Use natural conversational "
+        "language. Occasional light humor is welcome, but never at the user's "
+        "expense and never sarcastic."
+    ),
+    "rubberduck": (
+        "Be a rubber-duck debugging companion. Ask clarifying questions about "
+        "the user's reasoning. Reflect back what they said in your own words. "
+        "Help them think out loud — don't jump to solutions."
+    ),
+    "mentor": (
+        "Be a patient senior engineer mentoring a junior. Explain reasoning, "
+        "show what you'd consider, name relevant trade-offs. Teach as you go."
+    ),
+    "savage-pair": (
+        "Be a direct, opinionated code reviewer. Call out bad ideas plainly. "
+        "Never sugar-coat. Still respectful — critique the code, not the person."
+    ),
+}
+
+
+VERBOSE_LEVELS: tuple[str, ...] = ("off", "new", "all", "verbose")
+BUSY_MODES: tuple[str, ...] = ("queue", "steer", "interrupt")
+
+
+@dataclass
+class BackgroundTask:
+    """One backgrounded prompt. Result lands in `result` when done."""
+    id: str
+    prompt: str
+    started_at: float
+    task: Any  # asyncio.Task — keep loose to avoid import gymnastics here
+    result: str | None = None
+    error: str | None = None
+    done: bool = False
+
+
+@dataclass
+class ReplState:
+    """Mutable per-session state for the chat REPL. One instance per /chat run.
+
+    All new commands (Hermes-style /queue, /steer, /background, /snapshot,
+    /undo, /personality, /statusbar, /verbose, /busy …) read or mutate this.
+    """
+    # Conversation history
+    user_history: list[str] = field(default_factory=list)
+    assistant_history: list[str] = field(default_factory=list)
+
+    # Queued / steered prompts (drained between turns or after next tool call)
+    queued_prompts: list[str] = field(default_factory=list)
+    steer_prompts: list[str] = field(default_factory=list)
+
+    # Background tasks
+    background_tasks: dict[str, BackgroundTask] = field(default_factory=dict)
+    next_bg_id: int = 1
+
+    # TUI state toggles
+    statusbar_enabled: bool = True
+    verbose_level: str = "new"  # off | new | all | verbose
+    busy_mode: str = "queue"     # what Enter does while the agent is working
+
+    # Personality (overrides cfg.agent.system_prompt when set)
+    personality: str = "default"
+
+    # Active session label
+    session_id: str = ""
+
+
 class SessionStats:
     def __init__(self) -> None:
         self.start_ts = time.monotonic()
@@ -276,7 +368,8 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
     session_id = session_name or _generate_session_id()
     tui.render_startup(console, cfg.agent, session_name=session_id)
     stats = SessionStats()
-    user_history: list[str] = []
+    state = ReplState(session_id=session_id)
+    user_history = state.user_history  # backward-compat alias inside this fn
 
     prompt_session: PromptSession[str] = PromptSession(
         completer=FuzzyCompleter(SlashCommandCompleter()),
@@ -345,7 +438,7 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
             if line.startswith("/"):
                 action = await _handle_slash(
-                    line, agent, stats, current_model, cfg, user_history, session_id,
+                    line, agent, stats, current_model, cfg, state,
                 )
                 if action == "exit":
                     return
@@ -354,36 +447,57 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
                         current_model = action[1]
                     elif action[0] == "session":
                         session_id = action[1]
+                        state.session_id = session_id
                         user_history.clear()
+                        state.assistant_history.clear()
                     elif action[0] == "retry":
-                        # Replay last prompt as if user just sent it again.
                         line = action[1]
-                        # Fall through into the streaming block below.
                     else:
                         pass
                 if action == "reset":
                     session_id = agent.reset_session()
+                    state.session_id = session_id
                 if action == "redraw":
                     tui.render_startup(console, cfg.agent, session_name=session_id)
                 # If retry, fall through to the streaming block; otherwise loop.
                 if not (isinstance(action, tuple) and action[0] == "retry"):
-                    tui.render_status_bar(
-                        console, current_model, await _ctx_pct(agent),
-                        stats.last_turn_seconds, stats.session_seconds, session_id,
-                    )
+                    if state.statusbar_enabled:
+                        tui.render_status_bar(
+                            console, current_model, await _ctx_pct(agent),
+                            stats.last_turn_seconds, stats.session_seconds, session_id,
+                        )
                     continue
                 console.print(f"  [dim](retrying: {line[:60]}{'...' if len(line) > 60 else ''})[/]")
 
             user_history.append(line)
             stats.start_turn()
-            await _stream_one_turn(
-                agent, line, session_id, stats, current_model,
-                pending_questions=pending_questions,
-            )
-            tui.render_status_bar(
-                console, current_model, await _ctx_pct(agent),
-                stats.last_turn_seconds, stats.session_seconds, session_id,
-            )
+            # Drain any /queue'd prompts BEFORE this one so the queued items
+            # are sent first (FIFO from the user's POV when they queued ahead).
+            if state.queued_prompts:
+                queued = state.queued_prompts.pop(0)
+                console.print(f"  [dim](running queued prompt: {queued[:60]}{'...' if len(queued) > 60 else ''})[/]")
+                state.queued_prompts.insert(0, line)  # current line goes back to queue head
+                line = queued
+            if cfg.agent.ensemble_mode and isinstance(agent, Agent):
+                # Auto-route: gather drafts in parallel, then feed them to the
+                # main Claude session as augmented context. Tools, scrollback,
+                # and session continuity are all preserved — only the user's
+                # input message is augmented before being sent on.
+                await _stream_ensemble_turn(
+                    agent, line, session_id, stats, current_model, cfg,
+                    pending_questions=pending_questions,
+                )
+            else:
+                await _stream_one_turn(
+                    agent, line, session_id, stats, current_model,
+                    pending_questions=pending_questions,
+                    assistant_history=state.assistant_history,
+                )
+            if state.statusbar_enabled:
+                tui.render_status_bar(
+                    console, current_model, await _ctx_pct(agent),
+                    stats.last_turn_seconds, stats.session_seconds, session_id,
+                )
 
 
 PERMISSION_ALIASES = {
@@ -401,17 +515,22 @@ async def _stream_one_turn(
     stats: SessionStats,
     current_model: str,
     pending_questions: list[dict] | None = None,
+    assistant_history: list[str] | None = None,
 ) -> None:
     """Run one user turn end-to-end: spinner → buffered text → markdown flush.
 
     Text deltas are buffered (not streamed inline) and rendered as a single
     Rich Markdown block when a tool call interrupts, or at TurnDone. This
     makes bullets / headers / code fences actually render with styling.
+
+    If `assistant_history` is provided, every flushed assistant segment is
+    appended so /copy /undo /save can find the last reply.
     """
     spinner = tui.ThinkingSpinner(console)
     spinner.start()
     spinner_running = True
     text_buffer: list[str] = []
+    full_assistant_text: list[str] = []
     label_shown = False
 
     def flush_text() -> None:
@@ -421,7 +540,9 @@ async def _stream_one_turn(
         if not label_shown:
             tui.assistant_label(console)
             label_shown = True
-        tui.render_assistant_markdown(console, "".join(text_buffer))
+        joined = "".join(text_buffer)
+        full_assistant_text.append(joined)
+        tui.render_assistant_markdown(console, joined)
         text_buffer.clear()
 
     try:
@@ -448,6 +569,70 @@ async def _stream_one_turn(
     finally:
         spinner.stop()
         flush_text()
+        if assistant_history is not None and full_assistant_text:
+            assistant_history.append("".join(full_assistant_text))
+
+
+async def _stream_ensemble_turn(
+    agent: Agent,
+    user_message: str,
+    session_id: str,
+    stats: SessionStats,
+    current_model: str,
+    cfg: Config,
+    pending_questions: list[dict] | None = None,
+) -> None:
+    """Ensemble-augmented turn: fan out for drafts, then run main session w/ them.
+
+    Unlike `_run_ensemble_once` (which synthesizes a final answer with NO tools
+    and NO session memory), this routes through the user's primary Claude agent
+    so tool use, scrollback, and persistent context all keep working. The
+    ensemble drafts are injected as extra context inside the user message.
+    """
+    from joshv1 import ensemble as ens_mod
+
+    members = ens_mod.members_from_settings(cfg.agent)
+    if not members:
+        # No ensemble configured; fall back to a plain turn.
+        await _stream_one_turn(
+            agent, user_message, session_id, stats, current_model,
+            pending_questions=pending_questions,
+        )
+        return
+
+    console.print(f"  [dim]ensemble: polling {len(members)} drafters in parallel...[/]")
+
+    def _on_draft(member, draft):
+        if draft.success:
+            console.print(
+                f"  [josh.success]✓[/] [josh.info]{member.model}[/] "
+                f"[dim]({len(draft.text)} chars)[/]"
+            )
+        else:
+            console.print(f"  [josh.error]✗[/] [josh.info]{member.model}[/]")
+            console.print(f"      [dim]error: {draft.error!r}[/]")
+
+    drafts = await ens_mod.collect_drafts(
+        user_message, cfg.agent, members=members, on_draft_complete=_on_draft,
+    )
+    successful = [d for d in drafts if d.success]
+
+    if not successful:
+        console.print("  [dim]all drafts failed; running plain turn.[/]")
+        await _stream_one_turn(
+            agent, user_message, session_id, stats, current_model,
+            pending_questions=pending_questions,
+        )
+        return
+
+    console.print(
+        f"  [dim]feeding {len(successful)}/{len(drafts)} drafts to main session...[/]"
+    )
+    augmented = ens_mod.format_drafts_as_context(user_message, successful)
+    await _stream_one_turn(
+        agent, augmented, session_id, stats, current_model,
+        pending_questions=pending_questions,
+    )
 
 
 async def _handle_slash(
@@ -456,9 +641,12 @@ async def _handle_slash(
     stats: SessionStats,
     current_model: str,
     cfg: Config,
-    user_history: list[str],
-    session_id: str,
+    state: ReplState,
 ) -> str | tuple[str, str] | None:
+    # Rebind for readability; both names point at the same list/string.
+    user_history = state.user_history
+    session_id = state.session_id
+
     parts = line.split(maxsplit=1)
     cmd = parts[0].lower()
     arg = parts[1].strip() if len(parts) > 1 else ""
@@ -528,35 +716,7 @@ async def _handle_slash(
 
     # --- Ensemble: fan out to multiple models, synthesize one answer -------
     if cmd == "/ensemble":
-        if not arg:
-            console.print("  [josh.highlight]usage:[/] /ensemble <prompt>")
-            return None
-        from joshv1 import ensemble as ens_mod
-
-        console.print(
-            f"  [dim]polling {len(ens_mod.DEFAULT_ENSEMBLE)} models in parallel...[/]"
-        )
-
-        def _on_draft(member, draft):
-            if draft.success:
-                console.print(f"  [josh.success]✓[/] [josh.info]{member.model}[/] [dim]({len(draft.text)} chars)[/]")
-            else:
-                console.print(f"  [josh.error]✗[/] [josh.info]{member.model}[/]")
-                console.print(f"      [dim]error: {draft.error!r}[/]")
-                if draft.text:
-                    console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
-
-        answer, drafts = await ens_mod.run_ensemble(
-            arg, cfg.agent, on_draft_complete=_on_draft,
-        )
-        n_ok = sum(1 for d in drafts if d.success)
-        console.print(
-            f"\n[josh.title]Synthesized answer[/] "
-            f"[dim](from {n_ok}/{len(drafts)} drafts)[/]\n"
-        )
-        console.print(answer)
-        console.print()
-        return None
+        return await _handle_ensemble(arg, cfg)
 
     # --- Image / screenshot ------------------------------------------------
     if cmd == "/img":
@@ -848,6 +1008,102 @@ async def _handle_slash(
         await _list_sessions_async()
         return None
 
+    # =======================================================================
+    # SESSION GROUP — /save /undo /branch /fork /compress /rollback /snapshot
+    # /stop /background /agents /queue /steer /status /resume
+    # =======================================================================
+    if cmd == "/save":
+        return _cmd_save(arg, state, session_id)
+    if cmd == "/undo":
+        return _cmd_undo(state)
+    if cmd in ("/branch", "/fork"):
+        return await _cmd_branch(arg, agent, state, session_id)
+    if cmd == "/compress":
+        return await _cmd_compress(arg, agent, state)
+    if cmd == "/rollback":
+        return _cmd_rollback(arg)
+    if cmd in ("/snapshot", "/snap"):
+        return _cmd_snapshot(arg, cfg, state, current_model)
+    if cmd == "/stop":
+        return _cmd_stop(state)
+    if cmd in ("/background", "/bg", "/btw"):
+        return await _cmd_background(arg, agent, state, session_id, stats, current_model)
+    if cmd in ("/agents", "/tasks"):
+        return _cmd_agents(state)
+    if cmd in ("/queue", "/q"):
+        return _cmd_queue(arg, state)
+    if cmd == "/steer":
+        return _cmd_steer(arg, state)
+    if cmd == "/status":
+        return await _cmd_status(agent, state, current_model, stats, session_id)
+    if cmd == "/resume":
+        return _cmd_resume(arg)
+
+    # =======================================================================
+    # INFO GROUP — /profile /gquota /usage /insights /platforms /copy /paste /debug
+    # =======================================================================
+    if cmd == "/profile":
+        return _cmd_profile(cfg)
+    if cmd == "/gquota":
+        return await _cmd_gquota()
+    if cmd == "/usage":
+        return _cmd_usage(stats, current_model)
+    if cmd == "/insights":
+        return _cmd_insights(arg, cfg)
+    if cmd in ("/platforms", "/gateway"):
+        return _cmd_platforms(cfg)
+    if cmd == "/copy":
+        return _cmd_copy(arg, state)
+    if cmd == "/paste":
+        return _cmd_paste()
+    if cmd == "/debug":
+        return _cmd_debug(cfg, state, stats, current_model)
+
+    # =======================================================================
+    # CONFIGURATION GROUP — /config /provider /personality /statusbar /verbose
+    # /reasoning /skin /voice /busy
+    # =======================================================================
+    if cmd == "/config":
+        return _cmd_config(cfg, state)
+    if cmd == "/provider":
+        # Alias for /model — re-dispatch with the same args
+        return await _handle_slash(
+            "/model " + arg if arg else "/model", agent, stats, current_model, cfg, state,
+        )
+    if cmd == "/personality":
+        return await _cmd_personality(arg, cfg, agent, state)
+    if cmd in ("/statusbar", "/sb"):
+        return _cmd_statusbar(arg, state)
+    if cmd == "/verbose":
+        return _cmd_verbose(state)
+    if cmd == "/reasoning":
+        return await _cmd_reasoning(arg, agent, cfg)
+    if cmd == "/skin":
+        return _cmd_skin(arg)
+    if cmd == "/voice":
+        return _cmd_voice(arg)
+    if cmd == "/busy":
+        return _cmd_busy(arg, state)
+
+    # =======================================================================
+    # TOOLS & SKILLS GROUP — /toolsets /skills /cron /reload /reload-mcp
+    # /browser /plugins
+    # =======================================================================
+    if cmd == "/toolsets":
+        return _cmd_toolsets()
+    if cmd == "/skills":
+        return _cmd_skills(arg)
+    if cmd == "/cron":
+        return _cmd_cron(arg)
+    if cmd == "/reload":
+        return _cmd_reload()
+    if cmd in ("/reload-mcp", "/reload_mcp"):
+        return await _cmd_reload_mcp(agent)
+    if cmd == "/browser":
+        return _cmd_browser(arg)
+    if cmd == "/plugins":
+        return _cmd_plugins()
+
     console.print(f"[josh.error]Unknown command: {cmd}. Type /help for a list.[/]")
     return None
 
@@ -863,6 +1119,1147 @@ async def _list_sessions_async() -> None:
         console.print("[dim]No saved sessions yet.[/]")
         return
     tui.render_sessions(console, sessions)
+
+
+# ===========================================================================
+# Slash command implementations — every Hermes-style command we wired into the
+# dispatcher above lives here. Order matches the groups in _handle_slash.
+# Helpers (`_clip_copy`, `_clip_paste`, `_snapshot_dir`, etc.) sit at the end
+# of this section so the handlers stay close to the dispatcher.
+# ===========================================================================
+
+
+# ----- Session group -------------------------------------------------------
+
+def _cmd_save(arg: str, state: ReplState, session_id: str) -> None:
+    """Write the conversation to a markdown file. Default path under memory_dir."""
+    from joshv1.memory import memory_dir as _mem_dir
+    if arg:
+        out_path = Path(arg).expanduser()
+    else:
+        saves = _mem_dir("~/.josh-memory") / "saves"
+        saves.mkdir(parents=True, exist_ok=True)
+        out_path = saves / f"{session_id}.md"
+    pairs = list(zip(state.user_history, state.assistant_history + [""] * 9))
+    body = [f"# Session {session_id}\n\nSaved {datetime.now().isoformat()}\n"]
+    for i, (u, a) in enumerate(pairs, 1):
+        body.append(f"\n## Turn {i}\n\n### You\n\n{u}\n\n### Josh\n\n{a or '_(no reply captured)_'}")
+    out_path.write_text("\n".join(body))
+    console.print(f"  [josh.success]saved →[/] [josh.info]{out_path}[/] [dim]({len(pairs)} turn{'s' if len(pairs)!=1 else ''})[/]")
+    return None
+
+
+def _cmd_undo(state: ReplState) -> None:
+    """Pop the last exchange. Doesn't actually rewind the agent's server-side
+    session — Claude Code doesn't expose that — but trims local history so
+    /retry, /save, /copy, etc. see a cleaner state."""
+    if not state.user_history:
+        console.print("[dim]nothing to undo — history is empty.[/]")
+        return None
+    u = state.user_history.pop()
+    a = state.assistant_history.pop() if state.assistant_history else "(no reply captured)"
+    console.print(f"  [josh.success]undid[/] [dim]({len(u)}-char prompt + {len(a)}-char reply)[/]")
+    console.print(
+        "  [dim]note: only LOCAL history changed. The agent's server-side "
+        "session still remembers that exchange. Use /reset to fully reset.[/]"
+    )
+    return None
+
+
+async def _cmd_branch(arg: str, agent, state: ReplState, session_id: str):
+    """Fork the current session under a new id, optionally with a name."""
+    try:
+        from claude_agent_sdk import fork_session  # type: ignore
+    except ImportError:
+        console.print("[josh.error]fork_session not available in your claude_agent_sdk[/]")
+        return None
+    try:
+        result = fork_session(session_id, title=arg or None)  # type: ignore[arg-type]
+        new_id = getattr(result, "session_id", arg) or session_id + "_fork"
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[josh.error]branch failed:[/] {e}")
+        return None
+    console.print(
+        f"  [josh.success]branched[/] [dim]from {session_id[:16]}…[/] "
+        f"[josh.success]→[/] [josh.info]{new_id}[/]"
+    )
+    return ("session", new_id)
+
+
+async def _cmd_compress(arg: str, agent, state: ReplState):
+    """Have the agent summarize-then-replace its context. Stub-real: asks the
+    agent itself to do the summarization on the next turn; cannot actually
+    rewrite the Claude Code session transcript from outside."""
+    focus = arg.strip() or "the whole conversation so far"
+    prompt = (
+        f"Compress this conversation. Summarize {focus} into a tight set of "
+        f"key facts, decisions, open questions, and code-state notes that "
+        f"would let a fresh session pick up where we left off. Use bullets. "
+        f"Don't re-derive — just preserve. After the summary, ack with "
+        f"\"context compressed\" so I know it's done."
+    )
+    console.print("  [dim]queuing context compression request as next turn…[/]")
+    return ("retry", prompt)
+
+
+def _cmd_rollback(arg: str) -> None:
+    """File-checkpoint rollback. STUB — joshv1 doesn't yet have a
+    filesystem-snapshot system. Shows what it would do."""
+    console.print(
+        "  [josh.highlight]/rollback[/] [dim]is a stub.[/] "
+        "Would list filesystem checkpoints taken at risk-points (before /yolo "
+        "actions, before destructive edits) and restore on selection. "
+        "Implement: hook the agent's Write/Edit/Bash tool calls to snapshot "
+        "touched files under ~/.josh-memory/checkpoints/ before the edit."
+    )
+    return None
+
+
+def _snapshot_dir() -> Path:
+    from joshv1.memory import memory_dir as _mem_dir
+    d = _mem_dir("~/.josh-memory") / "snapshots"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cmd_snapshot(arg: str, cfg: Config, state: ReplState, current_model: str) -> None:
+    """JSON snapshot of cfg + state. Round-trippable via `restore <id>`."""
+    sub, _, rest = arg.partition(" ")
+    sub = sub.strip().lower() or "create"
+    snap_dir = _snapshot_dir()
+
+    if sub == "list":
+        snaps = sorted(snap_dir.glob("*.json"))
+        if not snaps:
+            console.print("[dim]no snapshots yet[/]")
+            return None
+        console.print("\n[josh.title]Snapshots[/]")
+        for s in snaps:
+            console.print(f"  [josh.info]{s.stem}[/]  [dim]({s.stat().st_size} bytes)[/]")
+        console.print()
+        return None
+
+    if sub == "prune":
+        snaps = sorted(snap_dir.glob("*.json"))
+        keep = 5
+        for old in snaps[:-keep] if len(snaps) > keep else []:
+            old.unlink()
+        console.print(f"  [josh.success]pruned[/] [dim](kept latest {keep})[/]")
+        return None
+
+    if sub == "restore":
+        if not rest:
+            console.print("  [josh.highlight]usage:[/] /snapshot restore <id>")
+            return None
+        target = snap_dir / f"{rest}.json"
+        if not target.is_file():
+            console.print(f"[josh.error]no snapshot[/] [dim]{rest}[/]")
+            return None
+        data = json.loads(target.read_text())
+        state.personality = data.get("personality", state.personality)
+        state.verbose_level = data.get("verbose_level", state.verbose_level)
+        state.busy_mode = data.get("busy_mode", state.busy_mode)
+        state.statusbar_enabled = data.get("statusbar_enabled", state.statusbar_enabled)
+        console.print(f"  [josh.success]restored[/] [josh.info]{rest}[/] [dim](state flags only — agent session unchanged)[/]")
+        return None
+
+    # create (default)
+    snap_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    payload = {
+        "id": snap_id,
+        "saved_at": datetime.now().isoformat(),
+        "session_id": state.session_id,
+        "model": current_model,
+        "personality": state.personality,
+        "verbose_level": state.verbose_level,
+        "busy_mode": state.busy_mode,
+        "statusbar_enabled": state.statusbar_enabled,
+        "user_history": state.user_history[-50:],
+        "assistant_history": state.assistant_history[-50:],
+    }
+    (snap_dir / f"{snap_id}.json").write_text(json.dumps(payload, indent=2))
+    console.print(f"  [josh.success]snapshot[/] [josh.info]{snap_id}[/] [dim]({snap_dir / (snap_id + '.json')})[/]")
+    return None
+
+
+def _cmd_stop(state: ReplState) -> None:
+    """Cancel all running background tasks."""
+    if not state.background_tasks:
+        console.print("[dim]no background tasks running[/]")
+        return None
+    n = 0
+    for bg_id, bg in list(state.background_tasks.items()):
+        if not bg.done:
+            bg.task.cancel()
+            n += 1
+        del state.background_tasks[bg_id]
+    console.print(f"  [josh.success]cancelled {n} task(s)[/]")
+    return None
+
+
+async def _cmd_background(arg: str, agent, state: ReplState, session_id: str,
+                          stats: SessionStats, current_model: str):
+    """Spawn a prompt as a fire-and-forget asyncio task."""
+    if not arg:
+        console.print("  [josh.highlight]usage:[/] /background <prompt>")
+        return None
+    if not isinstance(agent, Agent):
+        console.print("[dim]/background only works with the Claude backend.[/]")
+        return None
+
+    bg_id = f"bg{state.next_bg_id}"
+    state.next_bg_id += 1
+
+    async def _run():
+        # Fresh agent so the background task doesn't interleave with the
+        # foreground turn's tool calls. Same session id so the conversation
+        # picks up the result.
+        from joshv1.config import AgentSettings as _AS  # noqa: F401  (type hint clarity)
+        async with Agent(agent.settings, cwd=agent.settings.workspace_dir) as bg_agent:
+            try:
+                return await bg_agent.run(arg)
+            except Exception as e:  # noqa: BLE001
+                return f"[bg error] {e}"
+
+    task = asyncio.create_task(_run())
+    bg = BackgroundTask(
+        id=bg_id, prompt=arg, started_at=time.monotonic(), task=task,
+    )
+
+    def _on_done(t: Any) -> None:
+        bg.done = True
+        try:
+            bg.result = t.result()
+        except asyncio.CancelledError:
+            bg.error = "cancelled"
+        except Exception as e:  # noqa: BLE001
+            bg.error = str(e)
+
+    task.add_done_callback(_on_done)
+    state.background_tasks[bg_id] = bg
+    console.print(
+        f"  [josh.success]started[/] [josh.info]{bg_id}[/] "
+        f"[dim]({arg[:60]}{'…' if len(arg) > 60 else ''})[/]"
+    )
+    return None
+
+
+def _cmd_agents(state: ReplState) -> None:
+    """List active background tasks."""
+    if not state.background_tasks:
+        console.print("[dim]no background tasks[/]")
+        return None
+    console.print("\n[josh.title]Background tasks[/]")
+    for bg_id, bg in state.background_tasks.items():
+        elapsed = time.monotonic() - bg.started_at
+        status = (
+            "[josh.success]done[/]" if bg.done and not bg.error
+            else f"[josh.error]err[/] {bg.error}" if bg.error
+            else "[josh.highlight]running[/]"
+        )
+        console.print(f"  [josh.info]{bg_id}[/]  {status}  [dim]{elapsed:.1f}s[/]")
+        console.print(f"    [dim]prompt:[/] {bg.prompt[:100]}{'…' if len(bg.prompt) > 100 else ''}")
+        if bg.done and bg.result and not bg.error:
+            preview = bg.result[:200].replace("\n", " ")
+            console.print(f"    [dim]result:[/] {preview}{'…' if len(bg.result) > 200 else ''}")
+    console.print()
+    return None
+
+
+def _cmd_queue(arg: str, state: ReplState) -> None:
+    """Queue a prompt to run after the current turn finishes."""
+    if not arg:
+        if not state.queued_prompts:
+            console.print("[dim]queue is empty[/]")
+            return None
+        console.print("\n[josh.title]Queued prompts[/]")
+        for i, p in enumerate(state.queued_prompts, 1):
+            console.print(f"  [dim]{i}.[/] {p[:120]}{'…' if len(p) > 120 else ''}")
+        console.print()
+        return None
+    state.queued_prompts.append(arg)
+    console.print(f"  [josh.success]queued[/] [dim]({len(state.queued_prompts)} pending)[/]")
+    return None
+
+
+def _cmd_steer(arg: str, state: ReplState) -> None:
+    """Inject a steer message. STUB-ish — we record it; the tool-call event
+    handler (in _stream_one_turn) would need to consume it for true mid-turn
+    injection. Right now it's drained the same as /queue at next-turn time."""
+    if not arg:
+        if not state.steer_prompts:
+            console.print("[dim]no steer messages pending[/]")
+            return None
+        for i, s in enumerate(state.steer_prompts, 1):
+            console.print(f"  [dim]{i}.[/] {s}")
+        return None
+    state.steer_prompts.append(arg)
+    state.queued_prompts.append(f"[steer] {arg}")  # also queue so it runs next turn
+    console.print(f"  [josh.success]steer queued[/] [dim](mid-turn injection requires a future hook into _stream_one_turn)[/]")
+    return None
+
+
+async def _cmd_status(agent, state: ReplState, current_model: str,
+                      stats: SessionStats, session_id: str) -> None:
+    ctx = await _ctx_pct(agent)
+    items = [
+        ("session", session_id),
+        ("model", current_model),
+        ("turns", str(stats.turns)),
+        ("elapsed", f"{stats.session_seconds:.0f}s"),
+        ("context", f"{ctx:.0f}%" if ctx is not None else "--"),
+        ("user_history", str(len(state.user_history))),
+        ("queued", str(len(state.queued_prompts))),
+        ("background", str(len(state.background_tasks))),
+        ("personality", state.personality),
+        ("verbose", state.verbose_level),
+        ("busy_mode", state.busy_mode),
+        ("statusbar", "on" if state.statusbar_enabled else "off"),
+    ]
+    tui.render_kv_block(console, "Status", items)
+    return None
+
+
+def _cmd_resume(arg: str):
+    """Resume a previously-named session. Re-uses the existing reset path —
+    the agent rebuild happens on the next /chat invocation; for now we
+    just print instructions since runtime resume isn't supported mid-loop."""
+    if not arg:
+        console.print("  [josh.highlight]usage:[/] /resume <session_name>")
+        console.print("  [dim]for full resume, exit and run:[/] joshv1 chat --session <name>")
+        return None
+    console.print(
+        f"  [dim]queued resume of[/] [josh.info]{arg}[/] "
+        f"[dim](exit and re-run with `joshv1 chat --session {arg}` to actually resume)[/]"
+    )
+    return None
+
+
+# ----- Info group ----------------------------------------------------------
+
+def _cmd_profile(cfg: Config) -> None:
+    items = [
+        ("user", os.environ.get("USER", "?")),
+        ("home", str(Path.home())),
+        ("memory_dir", str(Path(cfg.agent.memory_dir).expanduser())),
+        ("workspace_dir", str(Path(cfg.agent.workspace_dir).expanduser())),
+        ("config_origin", "config.yaml + env"),
+    ]
+    tui.render_kv_block(console, "Profile", items)
+    return None
+
+
+async def _cmd_gquota():
+    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        console.print("[dim]no GEMINI_API_KEY / GOOGLE_API_KEY in env[/]")
+        return None
+    console.print("  [dim]/gquota is a stub.[/] Google doesn't expose a free-tier quota endpoint;")
+    console.print("  [dim]check https://aistudio.google.com/app/usage manually.[/]")
+    return None
+
+
+def _cmd_usage(stats: SessionStats, current_model: str) -> None:
+    items = [
+        ("model", current_model),
+        ("turns", str(stats.turns)),
+        ("input tokens", f"{stats.total_input:,}"),
+        ("output tokens", f"{stats.total_output:,}"),
+        ("total tokens", f"{stats.total_input + stats.total_output:,}"),
+        ("cost (equiv)", f"${stats.total_cost:.4f}"),
+        ("session time", f"{stats.session_seconds:.0f}s"),
+        ("billed via", "Anthropic Max subscription"),
+    ]
+    tui.render_kv_block(console, "Usage", items)
+    return None
+
+
+def _cmd_insights(arg: str, cfg: Config) -> None:
+    """Count saved sessions / snapshots in memory_dir. Very lightweight."""
+    from joshv1.memory import memory_dir as _mem_dir
+    days = 7
+    try:
+        days = int(arg) if arg else 7
+    except ValueError:
+        pass
+    mem = _mem_dir(cfg.agent.memory_dir)
+    saves = list((mem / "saves").glob("*.md")) if (mem / "saves").is_dir() else []
+    snaps = list((mem / "snapshots").glob("*.json")) if (mem / "snapshots").is_dir() else []
+    cutoff = time.time() - days * 86400
+    recent_saves = [s for s in saves if s.stat().st_mtime > cutoff]
+    recent_snaps = [s for s in snaps if s.stat().st_mtime > cutoff]
+    items = [
+        ("window", f"last {days} days"),
+        ("saved conversations", f"{len(recent_saves)} (of {len(saves)} total)"),
+        ("snapshots", f"{len(recent_snaps)} (of {len(snaps)} total)"),
+        ("memory dir", str(mem)),
+    ]
+    tui.render_kv_block(console, "Insights", items)
+    return None
+
+
+def _cmd_platforms(cfg: Config) -> None:
+    slack_ok = bool(cfg.slack.get("bot_token"))
+    discord_ok = bool(cfg.discord.get("bot_token"))
+    items = [
+        ("Slack",    "[josh.success]configured[/]" if slack_ok else "[dim]no SLACK_BOT_TOKEN[/]"),
+        ("Discord",  "[josh.success]configured[/]" if discord_ok else "[dim]no DISCORD_BOT_TOKEN[/]"),
+    ]
+    tui.render_kv_block(console, "Gateway platforms", items)
+    if slack_ok:
+        console.print("  [dim]run `joshv1 slack run` to start the Slack gateway.[/]")
+    if discord_ok:
+        console.print("  [dim]run `joshv1 discord run` to start the Discord gateway.[/]")
+    return None
+
+
+def _clip_copy(text: str) -> tuple[bool, str]:
+    """Cross-platform clipboard write. Returns (ok, tool-name)."""
+    candidates = [
+        (["wl-copy"],          "wl-copy"),
+        (["xclip", "-selection", "clipboard"], "xclip"),
+        (["xsel", "--clipboard", "--input"],   "xsel"),
+        (["pbcopy"],           "pbcopy"),
+        (["clip.exe"],         "clip.exe (WSL)"),
+    ]
+    for argv, name in candidates:
+        if shutil.which(argv[0]):
+            try:
+                subprocess.run(argv, input=text, text=True, check=True, timeout=5)
+                return True, name
+            except (subprocess.SubprocessError, OSError):
+                continue
+    return False, ""
+
+
+def _clip_paste() -> tuple[str | None, str]:
+    """Read the clipboard as text. Returns (text-or-None, tool-name)."""
+    candidates = [
+        (["wl-paste"],           "wl-paste"),
+        (["xclip", "-selection", "clipboard", "-o"], "xclip"),
+        (["xsel", "--clipboard", "--output"],        "xsel"),
+        (["pbpaste"],            "pbpaste"),
+        (["powershell.exe", "-NoProfile", "-Command", "Get-Clipboard"], "powershell.exe (WSL)"),
+    ]
+    for argv, name in candidates:
+        if shutil.which(argv[0]):
+            try:
+                r = subprocess.run(argv, capture_output=True, text=True, check=True, timeout=5)
+                return r.stdout, name
+            except (subprocess.SubprocessError, OSError):
+                continue
+    return None, ""
+
+
+def _cmd_copy(arg: str, state: ReplState) -> None:
+    if not state.assistant_history:
+        console.print("[dim]no assistant replies yet to copy.[/]")
+        return None
+    n = 1
+    if arg:
+        try:
+            n = int(arg)
+        except ValueError:
+            pass
+    if not (1 <= n <= len(state.assistant_history)):
+        console.print(f"[josh.error]bad index[/] [dim](have {len(state.assistant_history)} replies)[/]")
+        return None
+    text = state.assistant_history[-n]
+    ok, tool = _clip_copy(text)
+    if ok:
+        console.print(f"  [josh.success]copied {len(text)} chars[/] [dim](via {tool})[/]")
+    else:
+        console.print(
+            "  [josh.error]no clipboard tool found.[/] "
+            "[dim]install one of: wl-clipboard, xclip, xsel, pbcopy, clip.exe[/]"
+        )
+    return None
+
+
+def _cmd_paste() -> None:
+    text, tool = _clip_paste()
+    if text is None:
+        console.print("  [josh.error]no clipboard tool found.[/]")
+        return None
+    short = text.strip()
+    if not short:
+        console.print("[dim]clipboard is empty[/]")
+        return None
+    preview = short[:200].replace("\n", " ")
+    console.print(f"  [josh.success]clipboard:[/] [dim]{preview}{'…' if len(short) > 200 else ''}[/]")
+    console.print("  [dim](paste at the prompt — true image-clipboard support is a TODO)[/]")
+    return None
+
+
+def _cmd_debug(cfg: Config, state: ReplState, stats: SessionStats, current_model: str) -> None:
+    """Write a debug report under memory_dir/debug/ and print the path."""
+    from joshv1.memory import memory_dir as _mem_dir
+    out_dir = _mem_dir(cfg.agent.memory_dir) / "debug"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    info = [
+        f"# joshv1 debug report — {datetime.now().isoformat()}",
+        f"\n## Environment",
+        f"python:    {sys.version.split()[0]}",
+        f"platform:  {platform.platform()}",
+        f"machine:   {platform.machine()}",
+        f"\n## Session",
+        f"session_id:   {state.session_id}",
+        f"model:        {current_model}",
+        f"provider:     {cfg.agent.provider}",
+        f"effort:       {cfg.agent.effort}",
+        f"turns:        {stats.turns}",
+        f"input toks:   {stats.total_input}",
+        f"output toks:  {stats.total_output}",
+        f"\n## State flags",
+        f"personality:  {state.personality}",
+        f"verbose:      {state.verbose_level}",
+        f"busy_mode:    {state.busy_mode}",
+        f"statusbar:    {state.statusbar_enabled}",
+        f"queued:       {len(state.queued_prompts)}",
+        f"background:   {len(state.background_tasks)}",
+        f"\n## Ensemble",
+        f"mode:         {'on' if cfg.agent.ensemble_mode else 'off'}",
+        f"members:      {len(cfg.agent.ensemble) or '(defaults)'}",
+        f"\n## Recent user prompts (last 5)",
+        *[f"  {i+1}. {p[:120]}" for i, p in enumerate(state.user_history[-5:])],
+    ]
+    out.write_text("\n".join(info))
+    console.print(f"  [josh.success]wrote debug report →[/] [josh.info]{out}[/]")
+    return None
+
+
+# ----- Configuration group -------------------------------------------------
+
+def _cmd_config(cfg: Config, state: ReplState) -> None:
+    items = [
+        ("provider",         cfg.agent.provider),
+        ("model",            cfg.agent.model),
+        ("effort",           cfg.agent.effort),
+        ("thinking",         cfg.agent.thinking),
+        ("permission_mode",  cfg.agent.permission_mode),
+        ("workspace_dir",    cfg.agent.workspace_dir),
+        ("memory_dir",       cfg.agent.memory_dir),
+        ("mcp_servers",      str(len(cfg.agent.mcp_servers))),
+        ("skills",           str(cfg.agent.skills)),
+        ("ensemble_mode",    "on" if cfg.agent.ensemble_mode else "off"),
+        ("ensemble_size",    str(len(cfg.agent.ensemble) or "(defaults)")),
+        ("personality",      state.personality),
+    ]
+    tui.render_kv_block(console, "Configuration", items, key_width=18)
+    return None
+
+
+async def _cmd_personality(arg: str, cfg: Config, agent, state: ReplState):
+    if not arg:
+        console.print("\n[josh.title]Personalities[/]")
+        for name, prompt in PERSONALITIES.items():
+            marker = " [josh.success]← active[/]" if name == state.personality else ""
+            preview = (prompt or "use default system prompt")[:80]
+            console.print(f"  [josh.info]{name:<12}[/]  [dim]{preview}…[/]{marker}")
+        console.print()
+        return None
+    if arg not in PERSONALITIES:
+        console.print(f"  [josh.error]unknown personality:[/] {arg}")
+        console.print(f"  [dim]valid:[/] {', '.join(PERSONALITIES.keys())}")
+        return None
+    state.personality = arg
+    addendum = PERSONALITIES[arg]
+    if addendum:
+        # Append to current system prompt rather than replacing — we want the
+        # base joshv1 behavior preserved.
+        cfg.agent.system_prompt = (cfg.agent.system_prompt.split(
+            "\n\n--- PERSONALITY ---\n\n", 1)[0]) + "\n\n--- PERSONALITY ---\n\n" + addendum
+    if isinstance(agent, Agent) and agent._client is not None:
+        try:
+            await agent.reconfigure()
+            console.print(f"  [josh.success]personality →[/] [josh.info]{arg}[/]")
+        except Exception as e:  # noqa: BLE001
+            console.print(f"  [josh.error]reconnect failed:[/] {e}")
+    else:
+        console.print(f"  [josh.success]personality →[/] [josh.info]{arg}[/] [dim](applies next turn)[/]")
+    return None
+
+
+def _cmd_statusbar(arg: str, state: ReplState) -> None:
+    if arg.lower() == "on":
+        state.statusbar_enabled = True
+    elif arg.lower() == "off":
+        state.statusbar_enabled = False
+    else:
+        state.statusbar_enabled = not state.statusbar_enabled
+    console.print(f"  status bar → {'[josh.success]on[/]' if state.statusbar_enabled else '[dim]off[/]'}")
+    return None
+
+
+def _cmd_verbose(state: ReplState) -> None:
+    idx = (VERBOSE_LEVELS.index(state.verbose_level) + 1) % len(VERBOSE_LEVELS)
+    state.verbose_level = VERBOSE_LEVELS[idx]
+    console.print(f"  verbose → [josh.info]{state.verbose_level}[/] [dim]({' → '.join(VERBOSE_LEVELS)})[/]")
+    console.print("  [dim]note: actual filtering hookup in _render_event_tui is a follow-up. Flag is stored.[/]")
+    return None
+
+
+async def _cmd_reasoning(arg: str, agent, cfg: Config):
+    """Wrapper around /effort plus show/hide thinking-display."""
+    if arg in ("show", "hide"):
+        cfg.agent.thinking_display = "summarized" if arg == "show" else "omitted"
+        if isinstance(agent, Agent) and agent._client is not None:
+            try:
+                await agent.reconfigure()
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[josh.error]reconnect failed:[/] {e}")
+                return None
+        console.print(f"  reasoning display → [josh.info]{cfg.agent.thinking_display}[/]")
+        return None
+    if not arg:
+        items = [
+            ("effort",  cfg.agent.effort),
+            ("display", cfg.agent.thinking_display),
+        ]
+        tui.render_kv_block(console, "Reasoning", items)
+        return None
+    # Else treat the arg as an effort level and delegate.
+    if arg in VALID_EFFORTS:
+        cfg.agent.effort = arg
+        if isinstance(agent, Agent) and agent._client is not None:
+            try:
+                await agent.reconfigure()
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[josh.error]reconnect failed:[/] {e}")
+                return None
+        console.print(f"  effort → [josh.info]{arg}[/]")
+        return None
+    console.print(f"  [josh.highlight]usage:[/] /reasoning [{'|'.join(VALID_EFFORTS)}|show|hide]")
+    return None
+
+
+def _cmd_skin(arg: str) -> None:
+    if not arg:
+        themes_list = themes.list_themes()
+        active = themes.load_active_palette()
+        console.print("\n[josh.title]Available skins[/]")
+        for p in themes_list:
+            marker = " [josh.success]← active[/]" if p.name == active.name else ""
+            console.print(f"  [josh.info]{p.name}[/]  [dim]{themes.render_theme_swatch(p)}[/]{marker}")
+        console.print()
+        return None
+    try:
+        themes.get_palette(arg)
+    except (KeyError, ValueError):
+        console.print(f"  [josh.error]unknown skin:[/] {arg}")
+        return None
+    themes.save_active_theme(arg)
+    console.print(f"  [josh.success]skin →[/] [josh.info]{arg}[/] [dim](restart joshv1 to fully apply)[/]")
+    return None
+
+
+def _cmd_voice(arg: str):
+    """Transcribe an audio file with faster-whisper and use as the next prompt."""
+    if not arg:
+        console.print("  [josh.highlight]usage:[/] /voice <audio-file>")
+        return None
+    path = Path(arg).expanduser()
+    if not path.is_file():
+        console.print(f"[josh.error]not a file:[/] {path}")
+        return None
+    try:
+        from joshv1 import voice as voice_mod
+    except ImportError:
+        console.print("[josh.error]voice module missing[/]")
+        return None
+    try:
+        # voice.py exposes a transcribe-like entry; check there for current API
+        text = voice_mod.transcribe(str(path)) if hasattr(voice_mod, "transcribe") else None
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[josh.error]transcription failed:[/] {e}")
+        return None
+    if not text:
+        console.print(
+            "[dim]/voice transcribe() not exposed yet. Use: `joshv1 voice <file>` instead, "
+            "or wire `voice.transcribe(path)` into voice.py.[/]"
+        )
+        return None
+    console.print(f"  [josh.success]transcribed[/] [dim]({len(text)} chars)[/]")
+    return ("retry", text.strip())
+
+
+def _cmd_busy(arg: str, state: ReplState) -> None:
+    if not arg or arg == "status":
+        console.print(f"  busy_mode = [josh.info]{state.busy_mode}[/] [dim](options: {', '.join(BUSY_MODES)})[/]")
+        return None
+    if arg not in BUSY_MODES:
+        console.print(f"  [josh.error]unknown mode:[/] {arg}")
+        return None
+    state.busy_mode = arg
+    console.print(f"  busy_mode → [josh.info]{arg}[/]")
+    return None
+
+
+# ----- Tools & Skills group ------------------------------------------------
+
+def _cmd_toolsets() -> None:
+    """List toolset groups. joshv1 has no formal toolset registry; show the
+    built-in tool groups from tui.TOOL_GROUPS as a stand-in."""
+    if hasattr(tui, "TOOL_GROUPS"):
+        console.print("\n[josh.title]Toolsets[/]")
+        for group, tools in tui.TOOL_GROUPS.items():
+            console.print(f"  [josh.info]{group}[/]  [dim]({len(tools)} tools)[/]")
+        console.print()
+    else:
+        console.print("[dim]no toolset registry yet[/]")
+    return None
+
+
+def _cmd_skills(arg: str) -> None:
+    from joshv1 import skills as skills_mod
+    sub, _, rest = arg.partition(" ")
+    sub = sub.strip().lower() or "list"
+    if sub == "list":
+        installed = skills_mod.list_installed()
+        if not installed:
+            console.print("[dim]no skills installed[/]")
+            return None
+        console.print(f"\n[josh.title]Installed skills[/] [dim]({len(installed)})[/]")
+        for s in installed:
+            console.print(f"  [josh.info]{s.name}[/]  [dim]{(s.description or '')[:80]}[/]")
+        console.print()
+        return None
+    if sub == "browse":
+        items = skills_mod.browse()
+        if not items:
+            console.print("[dim]marketplace is empty[/]")
+            return None
+        console.print(f"\n[josh.title]Marketplace[/] [dim]({len(items)} skills)[/]")
+        for s in items[:30]:
+            console.print(f"  [josh.info]{s.get('name','?')}[/]  [dim]{(s.get('description') or '')[:80]}[/]")
+        console.print()
+        return None
+    if sub == "search" and rest:
+        hits = skills_mod.search(rest)
+        if not hits:
+            console.print(f"[dim]no matches for {rest!r}[/]")
+            return None
+        for s in hits[:20]:
+            console.print(f"  [josh.info]{s.get('name','?')}[/]  [dim]{(s.get('description') or '')[:80]}[/]")
+        return None
+    if sub == "inspect" and rest:
+        body = skills_mod.inspect_skill(rest)
+        if not body:
+            console.print(f"[dim]no installed skill[/] {rest!r}")
+            return None
+        console.print(body)
+        return None
+    if sub == "install" and rest:
+        try:
+            entry = skills_mod.install(rest)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[josh.error]install failed:[/] {e}")
+            return None
+        console.print(f"  [josh.success]installed[/] [josh.info]{entry.name}[/]")
+        return None
+    if sub in ("uninstall", "remove") and rest:
+        try:
+            skills_mod.uninstall(rest)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[josh.error]uninstall failed:[/] {e}")
+            return None
+        console.print(f"  [josh.success]uninstalled[/] [josh.info]{rest}[/]")
+        return None
+    console.print("  [josh.highlight]usage:[/] /skills [list|browse|search <q>|inspect <name>|install <id>|uninstall <name>]")
+    return None
+
+
+def _cmd_cron(arg: str) -> None:
+    """Cron stub — joshv1 doesn't ship a persistent scheduler. Suggests system cron."""
+    console.print(
+        "  [josh.highlight]/cron[/] [dim]is a stub.[/] joshv1 doesn't have an in-process "
+        "scheduler. For recurring tasks, wire up system cron / launchd / "
+        "Windows Task Scheduler to invoke `joshv1 run <prompt>`."
+    )
+    return None
+
+
+def _cmd_reload() -> None:
+    """Re-read .env into the running process."""
+    from dotenv import load_dotenv
+    home_env = Path.home() / ".env"
+    cwd_env = Path.cwd() / ".env"
+    n = 0
+    for p in (home_env, cwd_env):
+        if p.is_file():
+            load_dotenv(p, override=True)
+            n += 1
+    console.print(f"  [josh.success]reloaded {n} .env file(s)[/]")
+    return None
+
+
+async def _cmd_reload_mcp(agent):
+    if not isinstance(agent, Agent) or agent._client is None:
+        console.print("[dim]/reload-mcp only applies to the Claude backend.[/]")
+        return None
+    try:
+        await agent.reconfigure()
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[josh.error]reconfigure failed:[/] {e}")
+        return None
+    console.print(f"  [josh.success]agent reconfigured[/] [dim](MCP servers re-read from cfg)[/]")
+    return None
+
+
+def _cmd_browser(arg: str) -> None:
+    """Browser CDP stub. Future: connect a Playwright client to a live Chrome
+    via remote-debugging-port and expose page tools."""
+    console.print(
+        "  [josh.highlight]/browser[/] [dim]is a stub.[/] Would connect to a live Chrome "
+        "via CDP (--remote-debugging-port=9222) and expose page tools. "
+        "Install playwright + implement BrowserSession in joshv1.browser."
+    )
+    return None
+
+
+def _cmd_plugins() -> None:
+    """List installed Claude Agent SDK plugins, if any."""
+    plugins_dir = Path.home() / ".claude" / "plugins"
+    if not plugins_dir.is_dir():
+        console.print(f"[dim]no plugins dir at {plugins_dir}[/]")
+        return None
+    plugs = sorted(p.name for p in plugins_dir.iterdir() if p.is_dir())
+    if not plugs:
+        console.print("[dim]no plugins installed[/]")
+        return None
+    console.print(f"\n[josh.title]Plugins[/] [dim]({plugins_dir})[/]")
+    for p in plugs:
+        console.print(f"  [josh.info]{p}[/]")
+    console.print()
+    return None
+
+
+_ENSEMBLE_SUBCOMMANDS = {
+    "on", "off", "toggle", "status",
+    "list", "models", "add", "remove", "rm", "reset", "run", "retune",
+}
+
+
+async def _retune_ensemble_roles(cfg: Config) -> None:
+    """Ask Claude to evaluate every ensemble member and rewrite each role
+    to match what the model is actually best at. Persists the new roles.
+    """
+    import json
+    import re
+    from dataclasses import replace
+
+    from joshv1 import ensemble as ens_mod
+    from joshv1.agent import Agent as _Agent
+
+    members = ens_mod.members_from_settings(cfg.agent)
+    if not members:
+        console.print("  [dim]ensemble is empty — nothing to retune[/]")
+        return
+
+    model_list = "\n".join(f"- {m.provider} / {m.model}" for m in members)
+    judge_prompt = (
+        "You are configuring an LLM ensemble. For each model below, write a "
+        "concise role description (one line, comma-separated specialties, "
+        "~5-12 words) reflecting what THAT SPECIFIC MODEL is actually best "
+        "at relative to typical peers. Be HONEST: if a model is a generalist, "
+        "say so; if its 'specialty' is mostly hype, drop it. Avoid fabricating "
+        "strengths to make roles sound impressive. The roles you write will "
+        "be injected into each drafter's system prompt verbatim, so make them "
+        "useful behavioral cues, not marketing copy.\n\n"
+        f"Models:\n{model_list}\n\n"
+        "Output ONLY a JSON array with this exact shape — no markdown fences, "
+        "no preamble, no trailing text:\n"
+        '[{"model": "<exact model id from list>", "role": "<one-line role>"}, ...]'
+    )
+
+    console.print(
+        f"  [dim]asking Claude to evaluate {len(members)} model(s)...[/]"
+    )
+
+    # Use the user's main model if it's Claude; otherwise fall back to opus-4-7
+    # — same pattern as the synth step in ensemble.py.
+    claude_model = (
+        cfg.agent.model if cfg.agent.provider == "claude" else "claude-opus-4-7"
+    )
+    judge_settings = replace(
+        cfg.agent,
+        provider="claude",
+        model=claude_model,
+        system_prompt=(
+            "You are a senior ML engineer rating LLMs honestly based on "
+            "publicly documented strengths and benchmark behavior. You "
+            "produce concise, behavior-shaping role strings — never "
+            "marketing copy. You output strictly the JSON requested."
+        ),
+    )
+    try:
+        async with _Agent(judge_settings) as judge:
+            raw = await judge.run(judge_prompt)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"  [josh.error]judge call failed:[/] {e}")
+        return
+
+    # Strip accidental ```json fences if Claude includes them anyway.
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(),
+                     flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        console.print(f"  [josh.error]couldn't parse judge response as JSON:[/] {e}")
+        console.print(f"  [dim]raw output:[/]\n{raw[:500]}")
+        return
+
+    if not isinstance(data, list):
+        console.print(f"  [josh.error]judge returned non-list:[/] {type(data).__name__}")
+        return
+
+    by_model = {
+        entry["model"]: entry["role"]
+        for entry in data
+        if isinstance(entry, dict) and "model" in entry and "role" in entry
+    }
+
+    new_list: list[dict[str, str]] = []
+    changed = 0
+    for m in members:
+        new_role = by_model.get(m.model, m.role)
+        if new_role != m.role:
+            console.print(f"  [josh.info]{m.model}[/]")
+            console.print(f"    [dim]was:[/] {m.role}")
+            console.print(f"    [josh.success]now:[/] {new_role}")
+            changed += 1
+        new_list.append({"provider": m.provider, "model": m.model, "role": new_role})
+
+    if changed == 0:
+        console.print("  [dim]no changes — roles already match Claude's evaluation[/]")
+        return
+
+    try:
+        save_ensemble_members_override(new_list, cfg.agent.memory_dir)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"  [josh.error]failed to persist new roles:[/] {e}")
+        return
+    cfg.agent.ensemble = new_list
+    console.print(
+        f"  [josh.success]updated {changed}/{len(members)} role(s)[/] "
+        f"[dim](saved to memory override)[/]"
+    )
+
+
+def _print_ensemble_status(cfg: Config) -> None:
+    """Print the ensemble mode + member list. Used by `/ensemble` no-args + status."""
+    from joshv1 import ensemble as ens_mod
+    members = ens_mod.members_from_settings(cfg.agent)
+    mode = "[josh.success]on[/]" if cfg.agent.ensemble_mode else "[dim]off[/]"
+    console.print(f"\n[josh.title]Ensemble[/] · mode: {mode}")
+    console.print(f"[dim]  {len(members)} member(s):[/]")
+    for i, m in enumerate(members, 1):
+        console.print(
+            f"  [josh.highlight.bold]{i}.[/] "
+            f"[josh.info]{m.provider:12s}[/]  "
+            f"{m.model:55s}  [dim]{m.role}[/]"
+        )
+    console.print()
+    console.print("[dim]  /ensemble on|off|toggle              toggle auto-routing[/]")
+    console.print("[dim]  /ensemble add <provider> <model> [role]   add a model[/]")
+    console.print("[dim]  /ensemble remove <model_or_index>    drop a model[/]")
+    console.print("[dim]  /ensemble retune                     ask Claude to rewrite every role[/]")
+    console.print("[dim]  /ensemble reset                      restore built-in defaults[/]")
+    console.print("[dim]  /ensemble run <prompt>               one-shot run[/]")
+    console.print()
+
+
+async def _run_ensemble_once(prompt: str, cfg: Config) -> None:
+    """One-shot ensemble run — shared by `/ensemble run …` and auto-routing mode."""
+    from joshv1 import ensemble as ens_mod
+    members = ens_mod.members_from_settings(cfg.agent)
+    console.print(f"  [dim]polling {len(members)} models in parallel...[/]")
+
+    def _on_draft(member, draft):
+        if draft.success:
+            console.print(
+                f"  [josh.success]✓[/] [josh.info]{member.model}[/] "
+                f"[dim]({len(draft.text)} chars)[/]"
+            )
+        else:
+            console.print(f"  [josh.error]✗[/] [josh.info]{member.model}[/]")
+            console.print(f"      [dim]error: {draft.error!r}[/]")
+            if draft.text:
+                console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
+
+    answer, drafts = await ens_mod.run_ensemble(
+        prompt, cfg.agent, members=members, on_draft_complete=_on_draft,
+    )
+    n_ok = sum(1 for d in drafts if d.success)
+    console.print(
+        f"\n[josh.title]Synthesized answer[/] "
+        f"[dim](from {n_ok}/{len(drafts)} drafts)[/]\n"
+    )
+    tui.render_assistant_markdown(console, answer)
+    console.print()
+
+
+def _ensemble_current_member_dicts(cfg: Config) -> list[dict[str, str]]:
+    """Snapshot the *effective* member list as plain dicts, for mutation+persist."""
+    from joshv1 import ensemble as ens_mod
+    return [
+        {"provider": m.provider, "model": m.model, "role": m.role}
+        for m in ens_mod.members_from_settings(cfg.agent)
+    ]
+
+
+def _set_ensemble_mode(cfg: Config, enabled: bool) -> None:
+    cfg.agent.ensemble_mode = enabled
+    try:
+        save_active_ensemble_mode(enabled, cfg.agent.memory_dir)
+    except Exception as e:  # noqa: BLE001
+        console.print(f"  [josh.error]failed to persist mode:[/] {e}")
+        return
+    label = "[josh.success]ON[/]" if enabled else "[dim]OFF[/]"
+    console.print(f"  ensemble mode → {label}")
+    if enabled:
+        console.print(
+            "  [dim]every non-slash prompt will fan out to your ensemble for "
+            "drafts in parallel, then your main Claude session uses those "
+            "drafts as context to produce the reply. tools, scrollback, and "
+            "session memory are preserved.[/]"
+        )
+
+
+async def _handle_ensemble(arg: str, cfg: Config) -> None:
+    """Dispatcher for `/ensemble [subcommand] [args...]`."""
+    sub, _, rest = arg.partition(" ")
+    sub = sub.strip().lower()
+    rest = rest.strip()
+
+    # No args: show status + usage hints.
+    if not arg.strip():
+        _print_ensemble_status(cfg)
+        return None
+
+    # Mode toggle.
+    if sub == "on":
+        _set_ensemble_mode(cfg, True)
+        return None
+    if sub == "off":
+        _set_ensemble_mode(cfg, False)
+        return None
+    if sub == "toggle":
+        _set_ensemble_mode(cfg, not cfg.agent.ensemble_mode)
+        return None
+    if sub == "status":
+        _print_ensemble_status(cfg)
+        return None
+
+    # Member management.
+    if sub in ("list", "models"):
+        _print_ensemble_status(cfg)
+        return None
+
+    if sub == "retune":
+        await _retune_ensemble_roles(cfg)
+        return None
+
+    if sub == "add":
+        parts = rest.split(maxsplit=2)
+        if len(parts) < 2:
+            console.print(
+                "  [josh.highlight]usage:[/] "
+                "/ensemble add <provider> <model> [role description]"
+            )
+            return None
+        provider, model = parts[0], parts[1]
+        role = parts[2] if len(parts) > 2 else ""
+        current = _ensemble_current_member_dicts(cfg)
+        # Reject duplicates so add isn't silently a no-op.
+        if any(m["model"] == model and m["provider"] == provider for m in current):
+            console.print(f"  [dim]already in ensemble:[/] {provider} / {model}")
+            return None
+        current.append({"provider": provider, "model": model, "role": role})
+        try:
+            save_ensemble_members_override(current, cfg.agent.memory_dir)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"  [josh.error]failed to save:[/] {e}")
+            return None
+        cfg.agent.ensemble = current
+        console.print(
+            f"  [josh.success]added[/] [josh.info]{provider} / {model}[/] "
+            f"[dim]({len(current)} members)[/]"
+        )
+        return None
+
+    if sub in ("remove", "rm"):
+        if not rest:
+            console.print("  [josh.highlight]usage:[/] /ensemble remove <model_id_or_index>")
+            return None
+        current = _ensemble_current_member_dicts(cfg)
+        if not current:
+            console.print("  [dim]ensemble is empty[/]")
+            return None
+        # Allow either a 1-based index or a model id substring.
+        target_idx: int | None = None
+        try:
+            n = int(rest)
+            if 1 <= n <= len(current):
+                target_idx = n - 1
+        except ValueError:
+            for i, m in enumerate(current):
+                if m["model"] == rest:
+                    target_idx = i
+                    break
+            if target_idx is None:
+                # Loose match on substring as last resort.
+                matches = [i for i, m in enumerate(current) if rest in m["model"]]
+                if len(matches) == 1:
+                    target_idx = matches[0]
+                elif len(matches) > 1:
+                    console.print(
+                        f"  [josh.error]ambiguous:[/] {rest!r} matches "
+                        f"{[current[i]['model'] for i in matches]}"
+                    )
+                    return None
+        if target_idx is None:
+            console.print(f"  [josh.error]no match for[/] {rest!r}")
+            return None
+        removed = current.pop(target_idx)
+        try:
+            save_ensemble_members_override(current, cfg.agent.memory_dir)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"  [josh.error]failed to save:[/] {e}")
+            return None
+        cfg.agent.ensemble = current
+        console.print(
+            f"  [josh.success]removed[/] [josh.info]{removed['model']}[/] "
+            f"[dim]({len(current)} members)[/]"
+        )
+        return None
+
+    if sub == "reset":
+        try:
+            existed = clear_ensemble_members_override(cfg.agent.memory_dir)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"  [josh.error]failed to clear override:[/] {e}")
+            return None
+        cfg.agent.ensemble = []
+        if existed:
+            console.print("  [josh.success]reset[/] [dim](built-in defaults restored)[/]")
+        else:
+            console.print("  [dim]no override was set — already on defaults[/]")
+        return None
+
+    # `run <prompt>` — explicit one-shot.
+    if sub == "run":
+        if not rest:
+            console.print("  [josh.highlight]usage:[/] /ensemble run <prompt>")
+            return None
+        await _run_ensemble_once(rest, cfg)
+        return None
+
+    # Backward-compat: anything else is treated as the prompt itself, so
+    # `/ensemble hi` still runs a one-shot the way it always did.
+    await _run_ensemble_once(arg, cfg)
+    return None
 
 
 VALID_PERMISSION_MODES = {"default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"}
@@ -986,8 +2383,11 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) ->
 
     if list_members:
         members = ens_mod.members_from_settings(cfg.agent)
-        source = "config.yaml `agent.ensemble`" if cfg.agent.ensemble else "built-in default"
-        console.print(f"\n[josh.title]Ensemble members[/]  [dim]({source})[/]")
+        source = "config.yaml / memory override" if cfg.agent.ensemble else "built-in default"
+        mode = "on" if cfg.agent.ensemble_mode else "off"
+        console.print(
+            f"\n[josh.title]Ensemble members[/]  [dim]({source}, mode={mode})[/]"
+        )
         for m in members:
             console.print(f"  [josh.info]{m.provider:12s}[/]  {m.model:55s}  [dim]{m.role}[/]")
         console.print()
@@ -1001,9 +2401,11 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) ->
         console.print("[josh.error]No prompt given.[/]")
         sys.exit(2)
 
+    members = ens_mod.members_from_settings(cfg.agent)
+
     async def _go() -> None:
         console.print(
-            f"  [dim]polling {len(ens_mod.DEFAULT_ENSEMBLE)} models in parallel...[/]"
+            f"  [dim]polling {len(members)} models in parallel...[/]"
         )
 
         def _on_draft(member, draft):
@@ -1015,7 +2417,9 @@ def ensemble(ctx: click.Context, prompt: tuple[str, ...], list_members: bool) ->
                 if draft.text:
                     console.print(f"      [dim]text:  {draft.text[:160]!r}[/]")
 
-        answer, drafts = await ens_mod.run_ensemble(message, cfg.agent, on_draft_complete=_on_draft)
+        answer, drafts = await ens_mod.run_ensemble(
+            message, cfg.agent, members=members, on_draft_complete=_on_draft,
+        )
         n_ok = sum(1 for d in drafts if d.success)
         console.print(f"\n[josh.title]Synthesized answer[/] [dim](from {n_ok}/{len(drafts)} drafts)[/]\n")
         console.print(answer)

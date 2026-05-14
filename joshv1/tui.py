@@ -928,11 +928,178 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/effort",     "Change agent effort (interactive picker; persistent)"),
     ("/update",     "git pull the latest joshv1 from origin"),
     ("/audit",      "Have joshv1 scan its own repo and report improvements"),
-    ("/ensemble",   "Fan out a prompt to multiple models, synthesize one answer (usage: /ensemble <prompt>)"),
+    ("/ensemble",   "Multi-model ensemble: /ensemble (status) | on|off|toggle | add|remove|reset|retune | run <prompt> | <prompt>"),
+    # New: full Hermes-style command surface. Aliases share their target's
+    # description prefix with `alias for /<target>`. See SLASH_GROUPS below for
+    # the grouped layout rendered by /help. The flat list is kept so the
+    # autocomplete completer in cli.py still works without changes.
+    ("/save",       "Save the current conversation to a markdown file"),
+    ("/undo",       "Remove the last user/assistant exchange from history"),
+    ("/branch",     "Branch the current session (explore a different path) (usage: /branch [name])"),
+    ("/fork",       "alias for /branch"),
+    ("/compress",   "Manually compress conversation context (usage: /compress [focus topic])"),
+    ("/rollback",   "List or restore filesystem checkpoints (usage: /rollback [number])"),
+    ("/snapshot",   "Create or restore state snapshots (usage: /snapshot [create|restore <id>|list|prune])"),
+    ("/snap",       "alias for /snapshot"),
+    ("/stop",       "Kill all running background tasks"),
+    ("/background", "Run a prompt in the background (usage: /background <prompt>)"),
+    ("/bg",         "alias for /background"),
+    ("/btw",        "alias for /background"),
+    ("/agents",     "Show active background tasks"),
+    ("/tasks",      "alias for /agents"),
+    ("/queue",      "Queue a prompt to run after the current turn (usage: /queue <prompt>)"),
+    ("/q",          "alias for /queue"),
+    ("/steer",      "Inject a message after the next tool call (usage: /steer <prompt>)"),
+    ("/status",     "Show session info (id, turns, ctx %, time)"),
+    ("/resume",     "Resume a previously-named session (usage: /resume [name])"),
+    ("/profile",    "Show active profile name and home directory"),
+    ("/gquota",     "Show Google Gemini quota usage"),
+    ("/usage",      "Show token usage and cost totals for the session"),
+    ("/insights",   "Show usage insights and analytics (usage: /insights [days])"),
+    ("/platforms",  "Show gateway/messaging platform status (Slack/Discord)"),
+    ("/gateway",    "alias for /platforms"),
+    ("/copy",       "Copy the last assistant response to clipboard (usage: /copy [n])"),
+    ("/paste",      "Attach clipboard image to your next prompt"),
+    ("/debug",      "Generate a debug report (system info + recent logs)"),
+    ("/config",     "Show current configuration"),
+    ("/provider",   "alias for /model"),
+    ("/personality","Set a predefined personality (usage: /personality [name])"),
+    ("/statusbar",  "Toggle the context/model status bar"),
+    ("/sb",         "alias for /statusbar"),
+    ("/verbose",    "Cycle tool progress display: off → new → all → verbose"),
+    ("/reasoning",  "Manage reasoning effort and display (usage: /reasoning [level|show|hide])"),
+    ("/skin",       "Show or change the display skin/theme (usage: /skin [name])"),
+    ("/voice",      "Transcribe an audio file as the next prompt (usage: /voice <path>)"),
+    ("/busy",       "Control what Enter does while busy (usage: /busy [queue|steer|interrupt|status])"),
+    ("/toolsets",   "List available toolsets"),
+    ("/skills",     "Search, install, inspect, or manage skills"),
+    ("/cron",       "Manage scheduled tasks (usage: /cron [list|add|remove])"),
+    ("/reload",     "Reload .env variables into the running session"),
+    ("/reload-mcp", "Reload MCP servers from config"),
+    ("/reload_mcp", "alias for /reload-mcp"),
+    ("/browser",    "Connect browser tools to your live Chrome via CDP (usage: /browser [connect|disconnect|status])"),
+    ("/plugins",    "List installed plugins and their status"),
+]
+
+
+HIGH_VALUE_COMMANDS: set[str] = {
+    "/queue", "/steer", "/background", "/snapshot", "/undo",
+    "/save", "/copy", "/paste", "/usage", "/config", "/ensemble",
+}
+
+
+# Grouped layout for the new /help. Order intentionally mirrors the Hermes TUI
+# reference ([Session, Info, Configuration, Tools & Skills, Exit]) so users
+# coming from there find what they expect.
+SLASH_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Session", [
+        ("/new",        "Start a new session (fresh session ID + history)"),
+        ("/reset",      "alias for /new"),
+        ("/clear",      "Clear screen and start a new session"),
+        ("/redraw",     "Force a full UI repaint (recovers from terminal drift)"),
+        ("/history",    "Show conversation history"),
+        ("/save",       "Save the current conversation to a markdown file"),
+        ("/retry",      "Retry the last message (resend to agent)"),
+        ("/undo",       "Remove the last user/assistant exchange"),
+        ("/title",      "Set a title for the current session (usage: /title [name])"),
+        ("/branch",     "Branch the current session (usage: /branch [name])"),
+        ("/fork",       "alias for /branch"),
+        ("/compress",   "Manually compress conversation context (usage: /compress [focus])"),
+        ("/rollback",   "List or restore filesystem checkpoints"),
+        ("/snapshot",   "Create or restore state snapshots (usage: /snapshot [create|restore <id>|list|prune])"),
+        ("/snap",       "alias for /snapshot"),
+        ("/stop",       "Kill all running background tasks"),
+        ("/background", "Run a prompt in the background (usage: /background <prompt>)"),
+        ("/bg",         "alias for /background"),
+        ("/btw",        "alias for /background"),
+        ("/agents",     "Show active background tasks"),
+        ("/tasks",      "alias for /agents"),
+        ("/queue",      "Queue a prompt for the next turn (usage: /queue <prompt>)"),
+        ("/q",          "alias for /queue"),
+        ("/steer",      "Inject a message after the next tool call (usage: /steer <prompt>)"),
+        ("/status",     "Show session info (id, turns, ctx %, time)"),
+        ("/resume",     "Resume a previously-named session (usage: /resume [name])"),
+    ]),
+    ("Info", [
+        ("/profile",    "Show active profile name and home directory"),
+        ("/gquota",     "Show Google Gemini quota usage"),
+        ("/help",       "Show this command list"),
+        ("/usage",      "Show token usage and cost totals for the session"),
+        ("/insights",   "Show usage insights and analytics (usage: /insights [days])"),
+        ("/platforms",  "Show Slack/Discord gateway status"),
+        ("/gateway",    "alias for /platforms"),
+        ("/copy",       "Copy the last assistant response to clipboard (usage: /copy [n])"),
+        ("/paste",      "Attach a clipboard image to your next prompt"),
+        ("/image",      "Attach a local image file (usage: /image <path>)"),
+        ("/img",        "alias for /image"),
+        ("/screenshot", "Attach the most recent screenshot from your Pictures dir"),
+        ("/debug",      "Generate a debug report (system info + recent logs)"),
+    ]),
+    ("Configuration", [
+        ("/config",     "Show current configuration"),
+        ("/model",      "Switch model for this session (usage: /model [model])"),
+        ("/provider",   "alias for /model"),
+        ("/personality","Set a predefined personality (usage: /personality [name])"),
+        ("/statusbar",  "Toggle the context/model status bar"),
+        ("/sb",         "alias for /statusbar"),
+        ("/verbose",    "Cycle tool progress display: off → new → all → verbose"),
+        ("/yolo",       "Set permission mode to bypassPermissions (full trust)"),
+        ("/auto",       "Set permission mode to acceptEdits"),
+        ("/safe",       "Set permission mode to default (prompt before destructive)"),
+        ("/plan",       "Set permission mode to plan (Claude proposes before executing)"),
+        ("/permission", "Set permission mode explicitly (usage: /permission <mode>)"),
+        ("/effort",     "Change agent effort level (interactive picker)"),
+        ("/reasoning",  "Manage reasoning effort and display (usage: /reasoning [level|show|hide])"),
+        ("/skin",       "Show or change the display skin/theme (usage: /skin [name])"),
+        ("/voice",      "Transcribe an audio file as the next prompt (usage: /voice <path>)"),
+        ("/busy",       "Control what Enter does while busy (usage: /busy [queue|steer|interrupt|status])"),
+        ("/cwd",        "Show the current workspace + any extra mounted dirs"),
+        ("/cd",         "Add an extra directory the agent can touch (usage: /cd <path>)"),
+        ("/sysprompt",  "Print the current system prompt"),
+    ]),
+    ("Tools & Skills", [
+        ("/tools",      "List built-in tools (Read, Write, Bash, etc.)"),
+        ("/toolsets",   "List available toolsets"),
+        ("/skills",     "Search, install, inspect, or manage skills"),
+        ("/cron",       "Manage scheduled tasks (usage: /cron [list|add|remove])"),
+        ("/reload",     "Reload .env variables into the running session"),
+        ("/reload-mcp", "Reload MCP servers from config"),
+        ("/reload_mcp", "alias for /reload-mcp"),
+        ("/browser",    "Connect browser tools via CDP (usage: /browser [connect|disconnect|status])"),
+        ("/plugins",    "List installed plugins and their status"),
+        ("/ensemble",   "Multi-model ensemble (see: /ensemble for subcommands)"),
+        ("/maps",       "Geocode + braille map (usage: /maps <place> [z<N>])"),
+        ("/audit",      "Have joshv1 scan its own repo and report improvements"),
+        ("/update",     "git pull the latest joshv1 from origin"),
+        ("/sessions",   "List saved Claude Code sessions"),
+    ]),
+    ("Exit", [
+        ("/quit",       "Exit the CLI"),
+        ("/exit",       "alias for /quit"),
+    ]),
 ]
 
 
 def render_help(console: Console) -> None:
+    """Grouped help layout. High-value commands marked with ★."""
+    console.print()
+    console.print("  ┌" + "─" * 53 + "┐")
+    console.print("  │             [bold cyan](^_^)? Available Commands[/]              │")
+    console.print("  └" + "─" * 53 + "┘")
+    for group_name, cmds in SLASH_GROUPS:
+        console.print(f"\n  [josh.section]── {group_name} ──[/]")
+        for cmd, desc in cmds:
+            marker = "[josh.success]★[/]" if cmd in HIGH_VALUE_COMMANDS else " "
+            console.print(
+                f"   {marker} [josh.highlight]{cmd:<14}[/] "
+                f"[dim]- {desc}[/]"
+            )
+    console.print(f"\n  [dim]★ = high-value command. Type any /command to use it.[/]")
+    console.print("  [dim]Tip: tab-complete works on all commands.[/]\n")
+
+
+def render_help_flat(console: Console) -> None:
+    """Original flat help (kept for callers that want the simpler listing)."""
     console.print("\n[bold cyan]Slash commands[/]")
     for cmd, desc in SLASH_COMMANDS:
         console.print(f"  [josh.highlight]{cmd:<12}[/]  [dim]{desc}[/]")
@@ -966,4 +1133,16 @@ def render_stats(
     line.append(" · ", style="dim")
     line.append("billed to Max subscription", style="josh.secondary")
     console.print(line)
+    console.print()
+
+
+def render_kv_block(
+    console: Console, title: str, items: list[tuple[str, str]],
+    key_width: int | None = None,
+) -> None:
+    """Two-column key/value block. Used by /config, /status, /profile, /usage."""
+    console.print(f"\n[josh.title]{title}[/]")
+    width = key_width or max((len(k) for k, _ in items), default=0)
+    for k, v in items:
+        console.print(f"  [dim]{k:<{width}}[/]  [josh.text]{v}[/]")
     console.print()

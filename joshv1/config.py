@@ -6,6 +6,7 @@ authenticates against your local `claude` CLI install — no API key needed.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,8 @@ from dotenv import load_dotenv
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 EFFORT_FILE = "effort"  # under ~/.josh-memory/, set via /effort
+ENSEMBLE_MODE_FILE = "ensemble_mode"           # "on" / "off"
+ENSEMBLE_MEMBERS_FILE = "ensemble_members.json"  # JSON list of {provider,model,role}
 
 
 def save_active_effort(effort: str, memory_dir_path: str | os.PathLike[str]) -> None:
@@ -34,6 +37,77 @@ def load_active_effort(memory_dir_path: str | os.PathLike[str]) -> str | None:
         return None
     val = f.read_text().strip()
     return val if val in VALID_EFFORTS else None
+
+
+def save_active_ensemble_mode(
+    enabled: bool, memory_dir_path: str | os.PathLike[str],
+) -> None:
+    """Persist the ensemble-mode toggle so it survives restarts."""
+    from joshv1.memory import memory_dir as _mem_dir
+    mem_dir = _mem_dir(memory_dir_path)
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    (mem_dir / ENSEMBLE_MODE_FILE).write_text(("on" if enabled else "off") + "\n")
+
+
+def load_active_ensemble_mode(
+    memory_dir_path: str | os.PathLike[str],
+) -> bool | None:
+    from joshv1.memory import memory_dir as _mem_dir
+    f = _mem_dir(memory_dir_path) / ENSEMBLE_MODE_FILE
+    if not f.is_file():
+        return None
+    val = f.read_text().strip().lower()
+    if val in ("on", "true", "1", "yes"):
+        return True
+    if val in ("off", "false", "0", "no"):
+        return False
+    return None
+
+
+def save_ensemble_members_override(
+    members: list[dict[str, str]],
+    memory_dir_path: str | os.PathLike[str],
+) -> None:
+    """Persist an ensemble-members override. Overrides config.yaml on next load."""
+    from joshv1.memory import memory_dir as _mem_dir
+    mem_dir = _mem_dir(memory_dir_path)
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    (mem_dir / ENSEMBLE_MEMBERS_FILE).write_text(
+        json.dumps(members, indent=2) + "\n"
+    )
+
+
+def load_ensemble_members_override(
+    memory_dir_path: str | os.PathLike[str],
+) -> list[dict[str, str]] | None:
+    from joshv1.memory import memory_dir as _mem_dir
+    f = _mem_dir(memory_dir_path) / ENSEMBLE_MEMBERS_FILE
+    if not f.is_file():
+        return None
+    try:
+        data = json.loads(f.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, list):
+        return None
+    # Filter out malformed entries instead of crashing the whole load.
+    return [
+        {"provider": e["provider"], "model": e["model"], "role": e.get("role", "")}
+        for e in data
+        if isinstance(e, dict) and "provider" in e and "model" in e
+    ]
+
+
+def clear_ensemble_members_override(
+    memory_dir_path: str | os.PathLike[str],
+) -> bool:
+    """Remove the saved override so config.yaml / built-in default takes over again."""
+    from joshv1.memory import memory_dir as _mem_dir
+    f = _mem_dir(memory_dir_path) / ENSEMBLE_MEMBERS_FILE
+    if f.is_file():
+        f.unlink()
+        return True
+    return False
 
 
 DEFAULT_SYSTEM_PROMPT = """You are Josh v1, a personal AI agent helping with work tasks.
@@ -138,7 +212,13 @@ class AgentSettings:
     # {provider, model, role}. Empty list = use the hardcoded default in
     # joshv1/ensemble.py. OpenRouter free model IDs churn frequently, so
     # configuring this in YAML lets you swap models without a code change.
+    # An override file at ~/.josh-memory/ensemble_members.json (managed by the
+    # `/ensemble add|remove|reset` REPL commands) takes precedence over this.
     ensemble: list[dict[str, str]] = field(default_factory=list)
+    # When True, the chat REPL routes every non-slash prompt through the
+    # ensemble (drafts in parallel → synthesize one answer) instead of the
+    # primary Claude session. Persisted to ~/.josh-memory/ensemble_mode.
+    ensemble_mode: bool = False
 
 
 @dataclass
@@ -202,5 +282,14 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
     saved_effort = load_active_effort(cfg.agent.memory_dir)
     if saved_effort:
         cfg.agent.effort = saved_effort
+
+    saved_mode = load_active_ensemble_mode(cfg.agent.memory_dir)
+    if saved_mode is not None:
+        cfg.agent.ensemble_mode = saved_mode
+
+    # Memory-dir override beats YAML for ensemble members so REPL edits stick.
+    saved_members = load_ensemble_members_override(cfg.agent.memory_dir)
+    if saved_members is not None:
+        cfg.agent.ensemble = saved_members
 
     return cfg
