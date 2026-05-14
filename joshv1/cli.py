@@ -294,16 +294,48 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
         tui.render_status_bar(console, current_model, None, 0.0, 0.0, session_id)
 
+        # Populated by _stream_one_turn whenever Claude calls AskUserQuestion;
+        # consumed at the top of the loop on the next iteration to show an
+        # interactive picker instead of plain text input.
+        pending_questions: list[dict] = []
+
         while True:
             try:
-                # The blank line is printed separately — keeping the prompt
-                # itself a pure single line avoids prompt-toolkit's cursor
-                # math going wrong on redraw (which made the prompt vanish
-                # when backspacing through `/x` completion text).
-                console.print()
-                line = await prompt_session.prompt_async(
-                    HTML(themes.prompt_html(ACTIVE_PALETTE))
-                )
+                if pending_questions:
+                    # The agent asked one or more multiple-choice questions on
+                    # the last turn. Show the picker(s); use the answers as the
+                    # next user message. Esc on any picker cancels and drops
+                    # back to the normal prompt.
+                    answers: dict[str, str | list[str]] = {}
+                    cancelled = False
+                    for q in pending_questions:
+                        ans = await tui.pick_answer_for_question(
+                            console,
+                            question=q.get("question", ""),
+                            options=q.get("options", []),
+                            header=q.get("header", ""),
+                            multi_select=q.get("multiSelect", False),
+                        )
+                        if ans is None:
+                            cancelled = True
+                            break
+                        answers[q.get("header") or q.get("question", "answer")] = ans
+                    if cancelled:
+                        console.print("  [dim](picker cancelled — type your answer at the prompt)[/]")
+                        pending_questions = []
+                        continue
+                    line = tui.format_picker_answers(pending_questions, answers)
+                    pending_questions = []
+                    console.print(f"  [josh.label.you]▎ you ❱[/] [dim]{line}[/]")
+                else:
+                    # The blank line is printed separately — keeping the prompt
+                    # itself a pure single line avoids prompt-toolkit's cursor
+                    # math going wrong on redraw (which made the prompt vanish
+                    # when backspacing through `/x` completion text).
+                    console.print()
+                    line = await prompt_session.prompt_async(
+                        HTML(themes.prompt_html(ACTIVE_PALETTE))
+                    )
             except (EOFError, KeyboardInterrupt):
                 console.print("\n[dim]bye.[/]")
                 return
@@ -344,7 +376,10 @@ async def _chat(cfg: Config, session_name: str | None = None) -> None:
 
             user_history.append(line)
             stats.start_turn()
-            await _stream_one_turn(agent, line, session_id, stats, current_model)
+            await _stream_one_turn(
+                agent, line, session_id, stats, current_model,
+                pending_questions=pending_questions,
+            )
             tui.render_status_bar(
                 console, current_model, await _ctx_pct(agent),
                 stats.last_turn_seconds, stats.session_seconds, session_id,
@@ -365,6 +400,7 @@ async def _stream_one_turn(
     session_id: str,
     stats: SessionStats,
     current_model: str,
+    pending_questions: list[dict] | None = None,
 ) -> None:
     """Run one user turn end-to-end: spinner → buffered text → markdown flush.
 
@@ -398,6 +434,17 @@ async def _stream_one_turn(
                     spinner_running = False
                 flush_text()
                 _render_event_tui(event, stats)
+                # Capture AskUserQuestion so we can show an interactive picker
+                # at the next prompt instead of the user having to type the answer.
+                if (
+                    pending_questions is not None
+                    and isinstance(event, ToolCall)
+                    and event.name == "AskUserQuestion"
+                    and isinstance(event.input, dict)
+                ):
+                    for q in (event.input.get("questions") or []):
+                        if isinstance(q, dict) and q.get("options"):
+                            pending_questions.append(q)
     finally:
         spinner.stop()
         flush_text()

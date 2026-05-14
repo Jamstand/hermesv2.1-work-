@@ -492,6 +492,152 @@ def render_thinking_delta(console: Console, text: str) -> None:
     console.print(f"[dim italic]{text}[/]", end="", soft_wrap=True, highlight=False)
 
 
+async def pick_answer_for_question(
+    console: Console,
+    question: str,
+    options: list[dict],
+    header: str = "",
+    multi_select: bool = False,
+) -> str | list[str] | None:
+    """Interactive picker for AskUserQuestion. Arrow keys + Enter to select, Esc to cancel.
+
+    Returns the chosen option's label (str), a list of labels for multi-select,
+    or None if the user cancelled. Always offers an extra "Other (type your own)"
+    row at the bottom — Enter on that opens an inline text prompt.
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout, Window
+    from prompt_toolkit.layout.containers import HSplit
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.styles import Style
+
+    if not options:
+        return None
+
+    rows = list(options) + [{"label": "Other (type your own)", "description": "", "_other": True}]
+    n = len(rows)
+    state: dict = {"selected": 0, "marked": set(), "result": "__pending__"}
+
+    palette = themes.load_active_palette()
+
+    def render_lines():
+        out: list[tuple[str, str]] = []
+        if header:
+            out.append(("class:hdr", f"  [{header}]\n"))
+        out.append(("class:q", f"  {question}\n\n"))
+        for i, opt in enumerate(rows):
+            is_sel = i == state["selected"]
+            cursor = "▸ " if is_sel else "  "
+            mark = ""
+            if multi_select and not opt.get("_other"):
+                mark = "[✓] " if i in state["marked"] else "[ ] "
+            label = opt.get("label", "")
+            desc = opt.get("description", "")
+            row_style = "class:focused" if is_sel else "class:row"
+            out.append((row_style, f"  {cursor}{mark}{label}\n"))
+            if desc and is_sel:
+                out.append(("class:desc", f"      {desc}\n"))
+        hint = "\n  ↑/↓ navigate · Enter select · Esc cancel"
+        if multi_select:
+            hint += " · Space toggle"
+        out.append(("class:hint", hint))
+        return out
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    @kb.add("k")
+    def _(event):
+        state["selected"] = (state["selected"] - 1) % n
+
+    @kb.add("down")
+    @kb.add("j")
+    def _(event):
+        state["selected"] = (state["selected"] + 1) % n
+
+    @kb.add("enter")
+    def _(event):
+        opt = rows[state["selected"]]
+        if opt.get("_other"):
+            state["result"] = "__other__"
+        elif multi_select:
+            state["result"] = [rows[i].get("label", "") for i in sorted(state["marked"])] or [opt.get("label", "")]
+        else:
+            state["result"] = opt.get("label", "")
+        event.app.exit()
+
+    @kb.add("escape", eager=True)
+    @kb.add("c-c")
+    def _(event):
+        state["result"] = None
+        event.app.exit()
+
+    if multi_select:
+        @kb.add(" ")
+        def _(event):
+            if rows[state["selected"]].get("_other"):
+                return
+            if state["selected"] in state["marked"]:
+                state["marked"].remove(state["selected"])
+            else:
+                state["marked"].add(state["selected"])
+
+    control = FormattedTextControl(render_lines, focusable=True, key_bindings=kb)
+    window = Window(content=control, always_hide_cursor=True)
+    layout = Layout(HSplit([window]))
+    style = Style.from_dict({
+        "hdr":     f"{palette.secondary} bold",
+        "q":       f"{palette.primary} bold",
+        "focused": f"reverse {palette.primary}",
+        "row":     palette.text,
+        "desc":    f"italic {palette.dim}",
+        "hint":    palette.dim,
+    })
+
+    console.print()
+    app: Application = Application(
+        layout=layout, key_bindings=kb, style=style,
+        full_screen=False, mouse_support=False,
+    )
+    await app.run_async()
+
+    if state["result"] == "__other__":
+        # Inline freeform answer for the "Other" row
+        from prompt_toolkit import PromptSession
+        ps: PromptSession[str] = PromptSession()
+        try:
+            text = await ps.prompt_async(
+                HTML(themes.picker_prompt_html(palette, "type your answer (Enter to submit, Esc to cancel):"))
+            )
+        except (EOFError, KeyboardInterrupt):
+            return None
+        text = text.strip()
+        return text if text else None
+
+    return state["result"] if state["result"] != "__pending__" else None
+
+
+def format_picker_answers(questions: list[dict], answers: dict[str, str | list[str]]) -> str:
+    """Turn picker answers into a user message Claude can act on.
+
+    Format is one line per question: "<header or short question>: <answer>".
+    Multi-select answers are comma-joined.
+    """
+    parts: list[str] = []
+    for q in questions:
+        key = q.get("header") or (q.get("question") or "answer")
+        ans = answers.get(key)
+        if ans is None:
+            continue
+        if isinstance(ans, list):
+            parts.append(f"{key}: {', '.join(ans)}")
+        else:
+            parts.append(f"{key}: {ans}")
+    return "\n".join(parts)
+
+
 def render_tool_call(console: Console, name: str, tool_input: dict) -> None:
     # Special-case AskUserQuestion so the question + options render as a
     # readable prompt instead of a raw dict dump.
