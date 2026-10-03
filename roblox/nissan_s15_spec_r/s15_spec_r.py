@@ -55,6 +55,12 @@ PAINT_PRESETS = {
 PAINT = "lightning_yellow"
 CLAY = False                   # preview option: neutral grey paint
 TRI_LIMIT = 20000              # Roblox MeshPart triangle cap
+# Optional outer body shape from a mesh file (.glb/.gltf/.obj/.fbx), e.g. an
+# image-to-3D model; relative paths are next to this script. None = the
+# lofted body. See body_from_mesh().
+BODY_MESH = None
+BODY_VOXEL = 0.006             # remesh resolution for BODY_MESH (m)
+BODY_TRIS = 90000              # BODY_MESH shell triangles before the cuts
 
 # Real dimensions (metres)
 LENGTH, WIDTH, HEIGHT = 4.445, 1.695, 1.285
@@ -1476,21 +1482,330 @@ def lamp_volumes(grow=0.0, tag=""):
     return hl, tl
 
 
+# --------------------------------------------------------------------------
+# Body shape from a mesh file (BODY_MESH)
+# --------------------------------------------------------------------------
+# An image-to-3D model gets the surfacing right but arrives as one fused,
+# arbitrarily scaled blob with the wheels, wing and mirrors moulded on. It is
+# oriented, fitted to the real dimensions and axle positions, made symmetric
+# and watertight, stripped of the parts this script models itself, and then
+# goes through exactly the same cuts as the lofted body. Only its shape is
+# used; textures are ignored.
+
+def _verts(ob):
+    import numpy as np
+    v = np.empty(len(ob.data.vertices) * 3)
+    ob.data.vertices.foreach_get("co", v)
+    return v.reshape(-1, 3)
+
+
+def _set_verts(ob, V):
+    ob.data.vertices.foreach_set("co", V.ravel())
+    ob.data.update()
+
+
+def import_mesh_file(path, name):
+    """Import every mesh in a model file as one object (world space)."""
+    before = set(bpy.data.objects)
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".glb", ".gltf"):
+        bpy.ops.import_scene.gltf(filepath=path)
+    elif ext == ".obj":
+        bpy.ops.wm.obj_import(filepath=path)
+    elif ext == ".fbx":
+        bpy.ops.import_scene.fbx(filepath=path)
+    else:
+        raise ValueError(f"unsupported body mesh: {path}")
+    new = [o for o in bpy.data.objects if o not in before]
+    bm = bmesh.new()
+    for o in new:
+        if o.type == "MESH":
+            t = bmesh.new()
+            t.from_mesh(o.data)
+            t.transform(o.matrix_world)
+            add_bm(bm, t)
+    meshes = {o.data for o in new if o.type == "MESH"}
+    for o in new:
+        bpy.data.objects.remove(o, do_unlink=True)
+    for me in meshes:
+        bpy.data.meshes.remove(me)
+    if not bm.faces:
+        raise ValueError(f"no mesh found in {path}")
+    return new_object(name, bm, ["Paint"], smooth_angle=None)
+
+
+def fit_body_mesh(ob):
+    """Z up, nose to -Y, wheels on the real axles, real length/width/height.
+
+    The overhangs are stretched to the real ones with a scale that eases in
+    from 1 at the axle line, so the wheelbase section is only scaled
+    uniformly."""
+    import numpy as np
+    V = _verts(ob)
+    ext = V.max(0) - V.min(0)
+    if ext[0] > ext[1]:                          # length along X: turn 90 deg
+        V = V[:, [1, 0, 2]] * np.array([-1.0, 1.0, 1.0])
+    lo, hi = V.min(0), V.max(0)
+    V -= np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]])
+    H = V[:, 2].max()
+
+    def width(z0, z1):
+        m = (V[:, 2] >= z0) & (V[:, 2] <= z1)
+        return np.ptp(V[m, 0]) if m.any() else 0.0
+
+    if width(0.85 * H, H) > width(0.0, 0.15 * H):    # roof is narrower than the floor
+        V[:, 2] = H - V[:, 2]
+        V[:, 0] *= -1
+    L = np.ptp(V[:, 1])
+    y0 = V[:, 1].min()
+
+    def top(a, b):
+        m = (V[:, 1] >= y0 + a * L) & (V[:, 1] <= y0 + b * L)
+        return V[m, 2].max()
+
+    if top(0.0, 0.1) > top(0.9, 1.0):            # nose is lower than the boot
+        V[:, 0] *= -1
+        V[:, 1] *= -1
+    # wheel centres from the tyre contact patches
+    c = V[V[:, 2] < 0.012 * L, 1]
+    mid = (c.min() + c.max()) / 2
+    f, r = c[c < mid], c[c >= mid]
+    yf, yr = (f.min() + f.max()) / 2, (r.min() + r.max()) / 2
+    V *= WHEELBASE / (yr - yf)
+    V[:, 1] -= (yf + yr) / 2 * WHEELBASE / (yr - yf)
+    band = (V[:, 2] > 0.25) & (V[:, 2] < 0.80)       # below mirrors, above the floor
+    nose, tail = V[band, 1].min(), V[band, 1].max()
+    # height and width
+    V[:, 2] *= HEIGHT / V[:, 2].max()
+    side = (V[:, 2] > 0.40) & (V[:, 2] < 0.80)
+    V[:, 0] *= (WIDTH / 2) / np.abs(V[side, 0]).max()
+    # overhangs: y -> axle + (y - axle) + k * ease integral
+    grid = np.linspace(-4.0, 4.0, 8001)
+    out = grid.copy()
+    for axle, tip, real in ((Y_FAX, nose, Y_NOSE), (Y_RAX, tail, Y_TAIL)):
+        sgn = 1.0 if real > axle else -1.0
+        u = np.clip((grid - axle) * sgn / 0.5, 0.0, 1.0)
+        w = u * u * (3 - 2 * u)                  # 0 at the axle, 1 from 0.5 m out
+        I = np.cumsum(w) * (grid[1] - grid[0])
+        I -= np.interp(axle, grid, I)
+        I_tip = np.interp(tip, grid, I)
+        k = ((real - axle) - (tip - axle)) / I_tip if abs(I_tip) > 1e-9 else 0.0
+        zone = (grid - axle) * sgn > 0
+        out[zone] += k * I[zone]
+    V[:, 1] = np.interp(V[:, 1], grid, out)
+    _set_verts(ob, V)
+    print(f"[body] fitted: axles {yf:.3f}/{yr:.3f} -> {Y_FAX:.3f}/{Y_RAX:.3f}, "
+          f"overhangs {Y_FAX - nose:.3f}/{tail - Y_RAX:.3f} (scaled) -> "
+          f"{Y_FAX - Y_NOSE:.3f}/{Y_TAIL - Y_RAX:.3f}")
+
+
+def symmetrize_x(ob):
+    """Keep the +X (left) half and mirror it."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+                           plane_co=(0, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
+    bmesh.ops.mirror(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+                     merge_dist=1e-5, axis="X")
+    bm.to_mesh(ob.data)
+    bm.free()
+
+
+def voxel_remesh(ob, size):
+    mod = ob.modifiers.new("remesh", "REMESH")
+    mod.mode = "VOXEL"
+    mod.voxel_size = size
+    mod.adaptivity = 0.0
+    apply_modifiers(ob)
+
+
+def taubin(ob, iters=6, lam=0.5, mu=-0.53):
+    """Non-shrinking smoothing (irons out reconstruction noise)."""
+    import numpy as np
+    V = _verts(ob)
+    E = np.empty(len(ob.data.edges) * 2, dtype=np.int64)
+    ob.data.edges.foreach_get("vertices", E)
+    E = E.reshape(-1, 2)
+    deg = np.maximum(np.bincount(E.ravel(), minlength=len(V)), 1)[:, None]
+
+    def lap(P):
+        S = np.zeros_like(P)
+        np.add.at(S, E[:, 0], P[E[:, 1]])
+        np.add.at(S, E[:, 1], P[E[:, 0]])
+        return S / deg - P
+
+    for _ in range(iters):
+        V = V + lam * lap(V)
+        V = V + mu * lap(V)
+    _set_verts(ob, V)
+
+
+def _robust_fit(A, b, iters=5, tol=0.008):
+    """Least squares that ignores samples sitting more than tol *above* the
+    fit (spoiler pedestals, mirror stalks): returns fitted values."""
+    import numpy as np
+    keep = np.isfinite(b)
+    for _ in range(iters):
+        coef, *_ = np.linalg.lstsq(A[keep], b[keep], rcond=None)
+        fit = A @ coef
+        keep = np.isfinite(b) & (b - fit < tol)
+    return fit, keep
+
+
+def field_cutter(name, us, vs, H, to_xyz, far):
+    """Closed solid between the sampled surface h = H[j, i] over the grid
+    (us[i], vs[j]) and the plane h = far. to_xyz(u, v, h) -> point."""
+    bm = bmesh.new()
+    nu, nv = len(us), len(vs)
+    lo = [[bm.verts.new(to_xyz(us[i], vs[j], H[j, i])) for i in range(nu)] for j in range(nv)]
+    hi = [[bm.verts.new(to_xyz(us[i], vs[j], far)) for i in range(nu)] for j in range(nv)]
+    for j in range(nv - 1):
+        for i in range(nu - 1):
+            bm.faces.new((lo[j][i], lo[j + 1][i], lo[j + 1][i + 1], lo[j][i + 1]))
+            bm.faces.new((hi[j][i], hi[j][i + 1], hi[j + 1][i + 1], hi[j + 1][i]))
+    rim = ([(0, i) for i in range(nu)] + [(j, nu - 1) for j in range(1, nv)] +
+           [(nv - 1, i) for i in range(nu - 2, -1, -1)] + [(j, 0) for j in range(nv - 2, 0, -1)])
+    for k, a in enumerate(rim):
+        b = rim[(k + 1) % len(rim)]
+        bm.faces.new((lo[a[0]][a[1]], lo[b[0]][b[1]], hi[b[0]][b[1]], hi[a[0]][a[1]]))
+    return cutter_object(name, bm, "Paint")
+
+
+def strip_spoiler(ob):
+    """Cut everything a few mm above the boot lid (the spoiler is modelled
+    separately). The lid height is ray-cast from inside the body; under the
+    pedestals the rays exit through the wing, so each row is fitted with a
+    smooth crown curve that ignores those samples."""
+    import numpy as np
+    bvh = bvh_of(ob)
+    xs = np.linspace(-0.82, 0.82, 42)
+    ys = np.linspace(1.60, Y_TAIL + 0.06, 34)
+    H = np.full((len(ys), len(xs)), np.nan)
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            hit = bvh.ray_cast(Vector((x, y, 0.50)), Vector((0, 0, 1)))
+            if hit[0] is not None and hit[1].z > 0:      # exited the body (started inside)
+                H[j, i] = hit[0].z
+    A = np.stack([np.ones_like(xs), xs ** 2, xs ** 4, xs ** 6, xs ** 8], 1)
+    for j in range(len(ys)):
+        ok = np.isfinite(H[j])
+        if ok.sum() > 8:
+            fit, keep = _robust_fit(A, H[j])
+            H[j] = np.where(keep | ~ok, H[j], fit)
+    # no body under a sample: leave it alone (the cutter rises out of the way)
+    H = np.where(np.isfinite(H), H + 0.006, 1.9)
+    cut = field_cutter("cut_spoiler", xs, ys, H, lambda u, v, h: (u, v, h), 2.0)
+    boolean(ob, cut)
+    delete_object(cut)
+
+
+def strip_mirrors(ob):
+    """Cut the moulded door mirrors off just outside the door/window surface
+    (sampled from inside with the stalks fitted out)."""
+    import numpy as np
+    bvh = bvh_of(ob)
+    ys = np.linspace(-0.74, -0.14, 31)
+    pts, hx = [], []
+    for z in np.linspace(0.78, 1.10, 33):
+        for y in ys:
+            if z > Z_RAIL(y) - 0.02:             # above the window frame: outside the body
+                continue
+            hit = bvh.ray_cast(Vector((0.30, y, z)), Vector((1, 0, 0)))
+            if hit[0] is not None and hit[1].x > 0:
+                pts.append((y, z))
+                hx.append(hit[0].x)
+    P, hx = np.array(pts), np.array(hx)
+    def basis(y, z):
+        return np.stack([np.ones_like(y), y, z, y * z, z * z, y * y], -1)
+    _, keep = _robust_fit(basis(P[:, 0], P[:, 1]), hx, tol=0.006)
+    coef, *_ = np.linalg.lstsq(basis(P[keep, 0], P[keep, 1]), hx[keep], rcond=None)
+    zs = np.linspace(0.845, 1.10, 18)            # below this is door skin (my mirror covers it)
+    Y, Z = np.meshgrid(ys, zs)
+    H = basis(Y, Z) @ coef + 0.005
+    cut = field_cutter("cut_mirrors", zs, ys, H.T, lambda u, v, h: (h, v, u), 1.4)
+    both_sides(cut)
+    boolean(ob, cut)
+    delete_object(cut)
+
+
+def drop_islands(ob, keep_share=0.02):
+    """Delete loose pieces (e.g. cut-off spoiler tips) smaller than
+    keep_share of the mesh."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    seen, islands = set(), []
+    for v in bm.verts:
+        if v in seen:
+            continue
+        stack, isl = [v], []
+        seen.add(v)
+        while stack:
+            a = stack.pop()
+            isl.append(a)
+            for e in a.link_edges:
+                b = e.other_vert(a)
+                if b not in seen:
+                    seen.add(b)
+                    stack.append(b)
+        islands.append(isl)
+    small = [isl for isl in islands if len(isl) < keep_share * len(bm.verts)]
+    if small:
+        bmesh.ops.delete(bm, geom=[v for isl in small for v in isl], context="VERTS")
+        print(f"[body] dropped {len(small)} loose pieces")
+    bm.to_mesh(ob.data)
+    bm.free()
+
+
+def body_from_mesh(path):
+    """Body solid from a model file, plus a smoothed coarse copy that the
+    cavity and skin offsets are built from."""
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    ob = import_mesh_file(path, "Body")
+    print(f"[body] {os.path.basename(path)}: {tri_count(ob)} triangles")
+    fit_body_mesh(ob)
+    symmetrize_x(ob)
+    voxel_remesh(ob, BODY_VOXEL)
+    decimate(ob, min(1.0, BODY_TRIS / max(1, tri_count(ob))))
+    taubin(ob, 4)
+    strip_spoiler(ob)
+    strip_mirrors(ob)
+    drop_islands(ob)
+    base = copy_object(ob, "OffsetBase")
+    voxel_remesh(base, 0.02)
+    taubin(base, 10)
+    base.hide_render = True
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    check_manifold(bm, "body mesh")
+    bm.free()
+    shade_smooth(ob, 40)
+    return ob, base
+
+
 def build_body():
     """Returns dict with the body shell and the reference solid."""
-    body = new_object("Body", build_loft(), ["Paint"], smooth_angle=None)
+    if BODY_MESH:
+        body, base = body_from_mesh(BODY_MESH)
+    else:
+        body, base = new_object("Body", build_loft(), ["Paint"], smooth_angle=None), None
     ref = copy_object(body, "BodyRef")          # untouched outer solid
     ref.hide_render = True
-    inner = new_object("Inner", inner_offset(build_loft(2), 0.028), ["Interior"],
-                       smooth_angle=None)
-    layer_in = new_object("LayerIn", inner_offset(build_loft(2), 0.036), ["Paint"],
-                          smooth_angle=None)
+
+    def offset(name, t, mat, iters=10):
+        bm = bm_from_object(base) if base else build_loft(2)
+        return new_object(name, inner_offset(bm, t, iters=iters), [mat], smooth_angle=None)
+
+    inner = offset("Inner", 0.028, "Interior")
+    layer_in = offset("LayerIn", 0.036, "Paint")
     # the skin layer must poke out past the body surface: exact booleans
-    # do not like coincident faces
-    layer = new_object("Layer", inner_offset(build_loft(2), -0.015, iters=4), ["Paint"],
-                       smooth_angle=None)
+    # do not like coincident faces (a mesh body's offsets come from a
+    # smoothed copy, so give it more room)
+    layer = offset("Layer", -0.025 if base else -0.015, "Paint", iters=4)
     boolean(layer, layer_in)
     delete_object(layer_in)
+    if base:
+        delete_object(base)
     for ob in (inner, layer):
         ob.hide_render = True
     cab, bay, boot = build_cavities(inner)
@@ -2783,6 +3098,10 @@ def finalize_parts(parts):
     triangle cap. Light parts keep their own names for the light script."""
     from collections import defaultdict
     objs = [o for o in bpy.context.scene.objects if o.type == "MESH" and "assembly" in o]
+    for o in [o for o in objs if not o.data.polygons]:
+        print(f"[warn] {o.name} came out empty, skipped")
+        objs.remove(o)
+        delete_object(o)
     for o in objs:
         _select_only([o], o)
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
@@ -3468,6 +3787,8 @@ def write_part_list(final, outdir):
 # --------------------------------------------------------------------------
 
 def setup_render_scene(res=(1280, 720), samples=48):
+    """Photo studio: grey seamless floor, a big overhead softbox and long
+    side strips, so the paint shows the body's shape in its reflections."""
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
@@ -3479,51 +3800,45 @@ def setup_render_scene(res=(1280, 720), samples=48):
     sc.render.resolution_x, sc.render.resolution_y = res
     sc.render.film_transparent = False
     try:
-        sc.view_settings.view_transform = "Standard"
-        sc.view_settings.exposure = -0.9
-    except Exception:
-        pass
-    world = bpy.data.worlds.new("World") if sc.world is None else sc.world
+        sc.view_settings.view_transform = "AgX"
+        sc.view_settings.look = "AgX - Punchy"
+    except Exception:                       # pre-4.0: no AgX
+        sc.view_settings.view_transform = "Filmic"
+    world = bpy.data.worlds.new("Studio") if sc.world is None else sc.world
     sc.world = world
     world.use_nodes = True
     nt = world.node_tree
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputWorld")
     bg = nt.nodes.new("ShaderNodeBackground")
-    sky = nt.nodes.new("ShaderNodeTexSky")
-    try:
-        sky.sky_type = "NISHITA"
-        sky.sun_elevation = math.radians(35)
-        sky.sun_rotation = math.radians(140)
-    except Exception:
-        pass
-    bg.inputs["Strength"].default_value = 0.12
-    nt.links.new(sky.outputs[0], bg.inputs[0])
+    bg.inputs["Color"].default_value = (0.20, 0.20, 0.21, 1)
+    bg.inputs["Strength"].default_value = 0.6
     nt.links.new(bg.outputs[0], out.inputs[0])
     if "Ground" not in bpy.data.objects:
-        bpy.ops.mesh.primitive_plane_add(size=60, location=(0, 0, 0))
+        bpy.ops.mesh.primitive_plane_add(size=80, location=(0, 0, 0))
         g = bpy.context.object
         g.name = "Ground"
-        gm = bpy.data.materials.new("GroundMat")
+        gm = bpy.data.materials.new("StudioFloor")
         gm.use_nodes = True
-        gm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.18, 0.18, 0.19, 1)
-        gm.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.6
+        gm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.11, 0.11, 0.115, 1)
+        gm.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.55
         g.data.materials.append(gm)
-    if "KeyLight" not in bpy.data.objects:
-        ld = bpy.data.lights.new("KeyLight", "AREA")
-        ld.energy = 420
-        ld.size = 6
-        lo = bpy.data.objects.new("KeyLight", ld)
+    boxes = (("Studio_Top", (3.2, 7.0), (0, 0, 5.2), (0, 0, 0), 700),
+             ("Studio_SideL", (7.5, 1.2), (5.0, 0, 2.0), (0, 0, 0.6), 220),
+             ("Studio_SideR", (7.5, 1.2), (-5.0, 0, 2.0), (0, 0, 0.6), 220),
+             ("Studio_Front", (3.0, 1.5), (0, -7.5, 2.5), (0, 0, 0.5), 140),
+             ("Studio_Rear", (3.0, 1.5), (0, 7.5, 2.5), (0, 0, 0.5), 110))
+    for name, size, loc, aim, energy in boxes:
+        if name in bpy.data.objects:
+            continue
+        ld = bpy.data.lights.new(name, "AREA")
+        ld.shape = "RECTANGLE"
+        ld.size, ld.size_y = size
+        ld.energy = energy
+        lo = bpy.data.objects.new(name, ld)
         sc.collection.objects.link(lo)
-        lo.location = (4, -5, 7)
-        lo.rotation_euler = (math.radians(40), 0, math.radians(35))
-        ld2 = bpy.data.lights.new("FillLight", "AREA")
-        ld2.energy = 160
-        ld2.size = 8
-        lo2 = bpy.data.objects.new("FillLight", ld2)
-        sc.collection.objects.link(lo2)
-        lo2.location = (-6, 4, 5)
-        lo2.rotation_euler = (math.radians(50), 0, math.radians(-130))
+        lo.location = loc
+        lo.rotation_euler = (Vector(aim) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
 
 
 def render_view(path, loc, target=(0, 0, 0.55), lens=50, ortho=None):
@@ -3548,11 +3863,11 @@ def render_view(path, loc, target=(0, 0, 0.55), lens=50, ortho=None):
 
 
 PREVIEW_VIEWS = {
-    "front34": ((-5.2, -6.6, 2.1), (0, -0.2, 0.55), 50, None),
-    "rear34": ((4.8, 6.8, 2.2), (0, 0.2, 0.6), 50, None),
-    "side": ((9.0, 0.0, 0.62), (0, 0, 0.62), 50, 5.0),
-    "front": ((0.0, -9.0, 0.62), (0, 0, 0.62), 50, 2.3),
-    "rear": ((0.0, 9.0, 0.66), (0, 0, 0.66), 50, 2.3),
+    "front34": ((-8.9, -11.2, 2.9), (0, -0.15, 0.58), 85, None),
+    "rear34": ((8.2, 11.6, 3.0), (0, 0.2, 0.6), 85, None),
+    "side": ((13.0, 0.0, 1.0), (0, 0, 0.62), 85, None),
+    "front": ((0.0, -13.0, 1.1), (0, 0, 0.62), 85, None),
+    "rear": ((0.0, 13.0, 1.2), (0, 0, 0.66), 85, None),
     "top": ((0.0, 0.0, 9.0), (0, 0.0001, 0), 50, 5.0),
     "nose": ((-2.6, -4.6, 1.3), (0.0, -1.9, 0.5), 50, None),
     "hoodtop": ((-1.6, -3.9, 1.6), (0.0, -1.85, 0.6), 50, None),
@@ -3634,6 +3949,10 @@ def parse_args():
         elif a == "--clay":
             global CLAY
             CLAY = True
+        elif a == "--body":
+            global BODY_MESH
+            BODY_MESH = argv[i + 1] if argv[i + 1].lower() != "loft" else None
+            i += 1
         elif a == "--export":
             opts["export"] = True
         elif a == "--no-export":
@@ -3660,7 +3979,8 @@ def main():
     if opts["render"]:
         render_previews(opts["out"], opts["views"], opts["samples"])
     if opts["export"]:
-        for o in [o for o in bpy.data.objects if o.name in ("Ground", "PreviewCam", "KeyLight", "FillLight")]:
+        for o in [o for o in bpy.data.objects
+                  if o.name in ("Ground", "PreviewCam") or o.name.startswith("Studio_")]:
             bpy.data.objects.remove(o, do_unlink=True)
         os.makedirs(opts["out"], exist_ok=True)
         final = finalize_parts(parts)
