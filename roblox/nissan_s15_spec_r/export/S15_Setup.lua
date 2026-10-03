@@ -27,6 +27,7 @@ local LOOKS = {
 	BlackGloss = { "SmoothPlastic", { 25, 25, 29 }, 0, 0.08 },
 	BlackMatte = { "Plastic", { 36, 36, 39 }, 0, 0 },
 	Brake = { "Metal", { 130, 130, 132 }, 0, 0.05 },
+	BulbRed = { "SmoothPlastic", { 200, 10, 10 }, 0, 0.1 },
 	Caliper = { "SmoothPlastic", { 70, 70, 76 }, 0, 0.05 },
 	Carpet = { "Fabric", { 20, 20, 22 }, 0, 0 },
 	Chrome = { "SmoothPlastic", { 200, 200, 205 }, 0, 0.45 },
@@ -46,10 +47,10 @@ local LOOKS = {
 	Leather = { "SmoothPlastic", { 30, 30, 32 }, 0, 0 },
 	LensAmber = { "Glass", { 255, 140, 0 }, 0.2, 0.05 },
 	LensClear = { "Glass", { 235, 240, 245 }, 0.6, 0.1 },
-	LensRed = { "Glass", { 170, 0, 8 }, 0.15, 0.05 },
+	LensRed = { "Glass", { 150, 0, 8 }, 0.3, 0.05 },
 	Mirror = { "SmoothPlastic", { 210, 215, 220 }, 0, 0.85 },
 	Needle = { "Neon", { 255, 60, 10 }, 0, 0 },
-	Paint = { "SmoothPlastic", { 243, 188, 0 }, 0, 0.08 },
+	Paint = { "SmoothPlastic", { 231, 206, 29 }, 0, 0.08 },
 	PlateText = { "SmoothPlastic", { 10, 90, 40 }, 0, 0 },
 	PlateWhite = { "SmoothPlastic", { 238, 240, 236 }, 0, 0 },
 	Radiator = { "Metal", { 45, 45, 48 }, 0, 0 },
@@ -66,10 +67,10 @@ local LOOKS = {
 }
 local PARTS = {
 	Body_Aluminum = { "Body", "Aluminum" },
-	Body_Badge = { "Body", "Badge" },
 	Body_Battery = { "Body", "Battery" },
 	Body_BlackGloss = { "Body", "BlackGloss" },
 	Body_BlackMatte = { "Body", "BlackMatte" },
+	Body_BulbRed = { "Body", "BulbRed" },
 	Body_Carpet = { "Body", "Carpet" },
 	Body_Chrome = { "Body", "Chrome" },
 	Body_CoilPack = { "Body", "CoilPack" },
@@ -121,15 +122,12 @@ local PARTS = {
 	Door_R_Mirror = { "Door_R", "Mirror" },
 	Door_R_Paint = { "Door_R", "Paint" },
 	Hood_Badge = { "Hood", "Badge" },
-	Hood_Housing = { "Hood", "Housing" },
 	Hood_Interior = { "Hood", "Interior" },
 	Hood_Paint = { "Hood", "Paint" },
 	Light_Brake_C = { "Trunk", "LensRed" },
 	Light_Brake_L = { "Body", "LensRed" },
 	Light_Brake_R = { "Body", "LensRed" },
 	Light_Dash = { "Body", "Needle" },
-	Light_Fog_L = { "Body", "Emitter" },
-	Light_Fog_R = { "Body", "Emitter" },
 	Light_Head_L = { "Body", "Emitter" },
 	Light_Head_R = { "Body", "Emitter" },
 	Light_Indicator_FL = { "Body", "LensAmber" },
@@ -138,14 +136,15 @@ local PARTS = {
 	Light_Indicator_RR = { "Body", "LensAmber" },
 	Light_Indicator_SL = { "Body", "LensAmber" },
 	Light_Indicator_SR = { "Body", "LensAmber" },
-	Light_Plate = { "Trunk", "LensClear" },
+	Light_Plate = { "Body", "LensClear" },
 	Light_Reverse_L = { "Body", "LensClear" },
 	Light_Reverse_R = { "Body", "LensClear" },
 	SteeringWheel_Leather = { "SteeringWheel", "Leather" },
 	Trunk_Badge = { "Trunk", "Badge" },
+	Trunk_Housing = { "Trunk", "Housing" },
 	Trunk_Interior = { "Trunk", "Interior" },
 	Trunk_Paint = { "Trunk", "Paint" },
-	Trunk_Reflector = { "Trunk", "Reflector" },
+	Trunk_Terminal = { "Trunk", "Terminal" },
 	Wheel_FL_Badge = { "Wheel_FL", "Badge" },
 	Wheel_FL_Brake = { "Wheel_FL", "Brake" },
 	Wheel_FL_Chrome = { "Wheel_FL", "Chrome" },
@@ -176,25 +175,25 @@ local HINGES = {
 		angle = -62,
 		axis = { 0, 1, 0 },
 		label = "Left door",
-		pivot = { -2.857, 0.8477, 2.143 },
+		pivot = { -2.857, 0.8477, 2.5 },
 	},
 	Door_R = {
 		angle = 62,
 		axis = { 0, 1, 0 },
 		label = "Right door",
-		pivot = { 2.857, 0.8477, 2.143 },
+		pivot = { 2.857, 0.8477, 2.5 },
 	},
 	Hood = {
 		angle = 52,
 		axis = { 1, 0, 0 },
 		label = "Bonnet",
-		pivot = { -0, 2.008, 2.4 },
+		pivot = { -0, 2.026, 2.911 },
 	},
 	Trunk = {
 		angle = -58,
 		axis = { 1, 0, 0 },
 		label = "Boot",
-		pivot = { -0, 2.498, -5.529 },
+		pivot = { -0, 2.319, -5.471 },
 	},
 }
 local SEATS = {
@@ -203,7 +202,7 @@ local SEATS = {
 }
 local STEER = {
 	axis = { -0, 0.423, -0.9061 },
-	hub = { 1.321, 1.633, 0.4643 },
+	hub = { 1.321, 1.633, 0.9286 },
 }
 local WHEEL_SIZE = { 0.7679, 2.233 }
 local WHEELBASE = 9.0179
@@ -255,12 +254,12 @@ if up.Y < 0.5 then
 	warn("[S15] the import looks mirrored or upside down - check the importer's World Up / World Forward settings")
 end
 -- tolerate an import at another scale: measure the wheelbase
-local k = ((FL + FR) / 2 - (RL + RR) / 2).Magnitude / WHEELBASE
-if math.abs(k - 1) > 0.02 then
-	warn(string.format("[S15] model is %.2fx the expected stud scale - offsets scaled to match", k))
+local scale = ((FL + FR) / 2 - (RL + RR) / 2).Magnitude / WHEELBASE
+if math.abs(scale - 1) > 0.02 then
+	warn(string.format("[S15] model is %.2fx the expected stud scale - offsets scaled to match", scale))
 end
 local function W(p) -- car-local studs {right, up, forward} -> world
-	return origin + (right * p[1] + up * p[2] + fwd * p[3]) * k
+	return origin + (right * p[1] + up * p[2] + fwd * p[3]) * scale
 end
 local function V(d)
 	return right * d[1] + up * d[2] + fwd * d[3]
@@ -291,7 +290,7 @@ for _, k in ipairs({ "FL", "FR", "RL", "RR" }) do
 	local w = Instance.new("Part")
 	w.Name = k
 	w.Shape = Enum.PartType.Cylinder
-	w.Size = Vector3.new(WHEEL_SIZE[1], WHEEL_SIZE[2], WHEEL_SIZE[2]) * k
+	w.Size = Vector3.new(WHEEL_SIZE[1], WHEEL_SIZE[2], WHEEL_SIZE[2]) * scale
 	w.CFrame = CFrame.fromMatrix(tyre.Position, right, up)
 	w.Transparency = 1
 	w.Anchored = true
@@ -331,7 +330,7 @@ end
 local function makeSeat(class, name, p)
 	local s = Instance.new(class)
 	s.Name = name
-	s.Size = Vector3.new(1.6, 0.6, 1.6) * k
+	s.Size = Vector3.new(1.6, 0.6, 1.6) * scale
 	s.CFrame = CFrame.fromMatrix(W(p), right, up)
 	s.Transparency = 1
 	s.Anchored = true
@@ -566,7 +565,7 @@ local function refresh()
 	local haz = car:GetAttribute("Hazards") == true
 	local il = car:GetAttribute("IndicatorLeft") == true or haz
 	local ir = car:GetAttribute("IndicatorRight") == true or haz
-	for _, n in ipairs({ "Light_Head_L", "Light_Head_R", "Light_Fog_L", "Light_Fog_R", "Light_Plate", "Light_Dash" }) do
+	for _, n in ipairs({ "Light_Head_L", "Light_Head_R", "Light_Plate", "Light_Dash" }) do
 		set(n, head, n == "Light_Dash" and Color3.fromRGB(255, 70, 20) or WHITE)
 	end
 	for _, b in ipairs(beams) do
