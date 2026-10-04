@@ -251,8 +251,14 @@ def material(name, color, metallic=0.0, rough=0.5, alpha=1.0, emit=None,
 
 
 def setup_materials():
-    material("Paint", (0.20, 0.20, 0.21) if CLAY else PAINT_PRESETS[PAINT],
-             metallic=0.0, rough=0.12, coat=1.0)
+    paint = material("Paint", (0.20, 0.20, 0.21) if CLAY else PAINT_PRESETS[PAINT],
+                     metallic=0.0, rough=0.12, coat=0.8)
+    # slightly satin clear coat: blurs the reflections of the lumpy AI-body
+    # surface (A-pillar) instead of mirroring every ripple
+    for key in ("Coat Roughness", "Clearcoat Roughness"):
+        if key in paint.node_tree.nodes["Principled BSDF"].inputs:
+            paint.node_tree.nodes["Principled BSDF"].inputs[key].default_value = 0.1
+            break
     material("BlackGloss", (0.01, 0.01, 0.012), rough=0.18, coat=0.5)
     material("BlackMatte", (0.018, 0.018, 0.02), rough=0.75)
     material("Rubber", (0.012, 0.012, 0.012), rough=0.85)
@@ -1403,12 +1409,18 @@ def side_dlo_quarter():
     return fillet(pts, radii)
 
 
+def screen_edge_x(y):
+    """x of the windscreen's side edge (plan view, +X side) at y."""
+    if BODY_MESH:     # the reconstructed screen tapers more (measured on body/s15_body.glb)
+        return 0.645 - 0.2875 * (y + 0.62)
+    return X_RAIL(y) - 0.032
+
+
 def plan_windshield():
     yb, yt = -0.700, -0.085
-    side = sample(lambda y: (X_RAIL(y) - 0.032, y), yb, yt, 7)
-    if BODY_MESH:     # the reconstructed screen tapers more (measured on body/s15_body.glb)
+    if BODY_MESH:
         yt = -0.110
-        side = sample(lambda y: (0.645 - 0.2875 * (y + 0.62), y), yb, yt, 7)
+    side = sample(lambda y: (screen_edge_x(y), y), yb, yt, 7)
     pts = side + [(-x, y) for x, y in reversed(side)]
     radii = {0: 0.05, 6: 0.06, 7: 0.06, 13: 0.05}
     return fillet(pts, radii)
@@ -1929,10 +1941,13 @@ def strip_wipers(ob):
     """Shave the moulded wipers off the scuttle and the base of the screen
     (this script adds its own). The surface height is ray-cast from inside
     on dense rows across the car; each row is fitted with a smooth crown
-    curve that ignores samples sitting on top of it."""
+    curve that ignores samples sitting on top of it. Only inside the
+    screen's side edges: outboard of them the feet of the A-pillars stand
+    above the crown, and shaving them off left the lower pillars flat with
+    a step where the cut ended (a kinked highlight along the screen edge)."""
     import numpy as np
     bvh = bvh_of(ob)
-    xs = np.linspace(-0.78, 0.78, 40)
+    xs = np.linspace(-0.78, 0.78, 157)          # 1 cm: a clean edge at the pillars
     ys = np.arange(-0.86, -0.575, 0.005)
     H = np.full((len(ys), len(xs)), np.nan)
     for j, y in enumerate(ys):
@@ -1945,7 +1960,8 @@ def strip_wipers(ob):
         ok = np.isfinite(H[j])
         if ok.sum() > 8:
             fit, keep = _robust_fit(A, H[j], tol=0.006)
-            H[j] = np.where(keep | ~ok, H[j], fit)
+            inside = np.abs(xs) < screen_edge_x(max(ys[j], -0.70)) - 0.005
+            H[j] = np.where(keep | ~ok | ~inside, H[j], fit)
     # no body under a sample: leave it alone (the cutter rises out of the way)
     H = np.where(np.isfinite(H), H + 0.003, 1.9)
     cut = field_cutter("cut_wipers", xs, ys, H, lambda u, v, h: (u, v, h), 2.0)
@@ -1995,7 +2011,11 @@ def strip_spoiler(ob):
 
 def strip_mirrors(ob):
     """Cut the moulded door mirrors off just outside the door/window surface
-    (sampled from inside with the stalks fitted out)."""
+    (sampled from inside with the stalks fitted out). Never closer than
+    10 cm (in plan) outboard of the screen's side edge: the fitted surface
+    runs inside the A-pillar above the window line, and cutting there
+    planed the pillar's outer side flat up to the cutter's top (z 1.10),
+    leaving a notch where the cut ended."""
     import numpy as np
     bvh = bvh_of(ob)
     ys = np.linspace(-0.74, -0.14, 31)
@@ -2015,7 +2035,7 @@ def strip_mirrors(ob):
     coef, *_ = np.linalg.lstsq(basis(P[keep, 0], P[keep, 1]), hx[keep], rcond=None)
     zs = np.linspace(0.845, 1.10, 18)            # below this is door skin (my mirror covers it)
     Y, Z = np.meshgrid(ys, zs)
-    H = basis(Y, Z) @ coef + 0.005
+    H = np.maximum(basis(Y, Z) @ coef + 0.005, screen_edge_x(Y) + 0.10)
     cut = field_cutter("cut_mirrors", zs, ys, H.T, lambda u, v, h: (h, v, u), 1.4)
     both_sides(cut)
     boolean(ob, cut)
@@ -4403,9 +4423,103 @@ def write_part_list(final, outdir):
 # Preview rendering
 # --------------------------------------------------------------------------
 
+def _reflection_card(name, size, loc, aim, strength, edge):
+    """Emissive panel seen only in reflections (glossy rays): white in the
+    middle, fading to black over `edge` of its half-width (smootherstep), so
+    clear coat and glass mirror a soft studio panel instead of a hard,
+    clipped light rectangle. Named Studio_* so the export step removes it."""
+    sc = bpy.context.scene
+    me = bpy.data.meshes.new(name)
+    sx, sy = size[0] / 2, size[1] / 2
+    me.from_pydata([(-sx, -sy, 0), (sx, -sy, 0), (sx, sy, 0), (-sx, sy, 0)], [], [(0, 1, 2, 3)])
+    uv = me.uv_layers.new(name="UVMap")
+    for i, c in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))):
+        uv.data[i].uv = c
+    ob = bpy.data.objects.new(name, me)
+    sc.collection.objects.link(ob)
+    ob.location = loc
+    ob.rotation_euler = (Vector(aim) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
+    for attr in ("visible_camera", "visible_diffuse", "visible_shadow",
+                 "visible_transmission", "visible_volume_scatter"):
+        setattr(ob, attr, False)
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    em = nt.nodes.new("ShaderNodeEmission")
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    nt.links.new(nt.nodes.new("ShaderNodeTexCoord").outputs["UV"], sep.inputs[0])
+    fac = []
+    for ax in ("X", "Y"):
+        lin = nt.nodes.new("ShaderNodeMath")          # |2u - 1|: 0 centre, 1 edge
+        lin.operation = "MULTIPLY_ADD"
+        lin.inputs[1].default_value, lin.inputs[2].default_value = 2.0, -1.0
+        nt.links.new(sep.outputs[ax], lin.inputs[0])
+        ab = nt.nodes.new("ShaderNodeMath")
+        ab.operation = "ABSOLUTE"
+        nt.links.new(lin.outputs[0], ab.inputs[0])
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.interpolation_type = "SMOOTHERSTEP"
+        mr.inputs["From Min"].default_value = 1.0
+        mr.inputs["From Max"].default_value = 1.0 - edge
+        nt.links.new(ab.outputs[0], mr.inputs["Value"])
+        fac.append(mr.outputs["Result"])
+    mul = nt.nodes.new("ShaderNodeMath")
+    mul.operation = "MULTIPLY"
+    nt.links.new(fac[0], mul.inputs[0])
+    nt.links.new(fac[1], mul.inputs[1])
+    amp = nt.nodes.new("ShaderNodeMath")
+    amp.operation = "MULTIPLY"
+    amp.inputs[1].default_value = strength
+    nt.links.new(mul.outputs[0], amp.inputs[0])
+    nt.links.new(amp.outputs[0], em.inputs["Strength"])
+    nt.links.new(em.outputs[0], out.inputs["Surface"])
+    me.materials.append(m)
+    return ob
+
+
+def highlight_shoulder(sc, knee=0.80, white=0.98):
+    """Standard has no highlight roll-off, so the brightest paint goes flat
+    (one channel pinned at 1.0). This compositor shoulder scales each pixel's
+    RGB so that max(R, G, B) stays linear up to `knee` and then eases towards
+    `white` (display-linear, after exposure) without reaching it. Hue and
+    saturation are kept, so the yellow stays vivid."""
+    gain = 2.0 ** sc.view_settings.exposure
+    k, span = knee / gain, (white - knee) / gain
+    sc.use_nodes = True
+    cn = sc.node_tree
+    cn.nodes.clear()
+    rl = cn.nodes.new("CompositorNodeRLayers")
+    sep = cn.nodes.new("CompositorNodeSeparateColor")
+    cn.links.new(rl.outputs["Image"], sep.inputs[0])
+
+    def op(kind, a, b=None):
+        n = cn.nodes.new("CompositorNodeMath")
+        n.operation = kind
+        for i, v in enumerate((a, b)):
+            if isinstance(v, (int, float)):
+                n.inputs[i].default_value = v
+            elif v is not None:
+                cn.links.new(v, n.inputs[i])
+        return n.outputs[0]
+    peak = op("MAXIMUM", op("MAXIMUM", sep.outputs[0], sep.outputs[1]), sep.outputs[2])
+    over = op("MAXIMUM", op("SUBTRACT", peak, k), 0.0)
+    roll = op("MULTIPLY", op("SUBTRACT", 1.0, op("EXPONENT", op("MULTIPLY", over, -1.0 / span))), span)
+    ratio = op("DIVIDE", op("ADD", op("MINIMUM", peak, k), roll), op("MAXIMUM", peak, 1e-6))
+    mul = cn.nodes.new("CompositorNodeMixRGB")
+    mul.blend_type = "MULTIPLY"
+    cn.links.new(rl.outputs["Image"], mul.inputs[1])
+    cn.links.new(ratio, mul.inputs[2])
+    cn.links.new(mul.outputs[0], cn.nodes.new("CompositorNodeComposite").inputs["Image"])
+
+
 def setup_render_scene(res=(1280, 720), samples=48):
     """Photo studio: grey seamless floor, a big overhead softbox and long
-    side strips, so the paint shows the body's shape in its reflections."""
+    side strips. The area lights only light the car (they are hidden from
+    glossy rays); what the clear coat and the glass mirror are dim
+    soft-edged reflection cards, so under the Standard view transform the
+    highlights stay soft instead of clipping to ragged white streaks."""
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
@@ -4419,6 +4533,7 @@ def setup_render_scene(res=(1280, 720), samples=48):
     sc.view_settings.view_transform = "Standard"   # AgX/Filmic wash the yellow out
     sc.view_settings.look = "None"
     sc.view_settings.exposure = -0.6
+    highlight_shoulder(sc)
     world = bpy.data.worlds.new("Studio") if sc.world is None else sc.world
     sc.world = world
     world.use_nodes = True
@@ -4427,7 +4542,7 @@ def setup_render_scene(res=(1280, 720), samples=48):
     out = nt.nodes.new("ShaderNodeOutputWorld")
     bg = nt.nodes.new("ShaderNodeBackground")
     bg.inputs["Color"].default_value = (0.20, 0.20, 0.21, 1)
-    bg.inputs["Strength"].default_value = 0.6
+    bg.inputs["Strength"].default_value = 1.3      # ambient fill; backdrop ~ reference grey
     nt.links.new(bg.outputs[0], out.inputs[0])
     if "Ground" not in bpy.data.objects:
         bpy.ops.mesh.primitive_plane_add(size=80, location=(0, 0, 0))
@@ -4438,22 +4553,35 @@ def setup_render_scene(res=(1280, 720), samples=48):
         gm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.11, 0.11, 0.115, 1)
         gm.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.55
         g.data.materials.append(gm)
-    boxes = (("Studio_Top", (3.2, 7.0), (0, 0, 5.2), (0, 0, 0), 700),
-             ("Studio_SideL", (7.5, 1.2), (5.0, 0, 2.0), (0, 0, 0.6), 220),
-             ("Studio_SideR", (7.5, 1.2), (-5.0, 0, 2.0), (0, 0, 0.6), 220),
-             ("Studio_Front", (3.0, 1.5), (0, -7.5, 2.5), (0, 0, 0.5), 140),
-             ("Studio_Rear", (3.0, 1.5), (0, 7.5, 2.5), (0, 0, 0.5), 110))
+    # diffuse-only key/fill lights: less top, more side than before so the
+    # flanks reach the reference brightness without the hood clipping
+    boxes = (("Studio_Top", (3.2, 7.0), (0, 0, 5.2), (0, 0, 0), 560),
+             ("Studio_SideL", (7.5, 1.2), (5.0, 0, 2.0), (0, 0, 0.6), 350),
+             ("Studio_SideR", (7.5, 1.2), (-5.0, 0, 2.0), (0, 0, 0.6), 350),
+             ("Studio_Front", (3.0, 1.5), (0, -7.5, 2.5), (0, 0, 0.5), 110),
+             ("Studio_Rear", (3.0, 1.5), (0, 7.5, 2.5), (0, 0, 0.5), 140))
     for name, size, loc, aim, energy in boxes:
-        if name in bpy.data.objects:
-            continue
-        ld = bpy.data.lights.new(name, "AREA")
-        ld.shape = "RECTANGLE"
-        ld.size, ld.size_y = size
-        ld.energy = energy
-        lo = bpy.data.objects.new(name, ld)
-        sc.collection.objects.link(lo)
-        lo.location = loc
-        lo.rotation_euler = (Vector(aim) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
+        lo = bpy.data.objects.get(name)
+        if lo is None:
+            ld = bpy.data.lights.new(name, "AREA")
+            ld.shape = "RECTANGLE"
+            ld.size, ld.size_y = size
+            ld.energy = energy
+            lo = bpy.data.objects.new(name, ld)
+            sc.collection.objects.link(lo)
+            lo.location = loc
+            lo.rotation_euler = (Vector(aim) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
+        lo.visible_glossy = False       # no hard mirrored light boxes in paint/glass
+    # what the paint and glass reflect instead: radiance 1.5-2.5 stays below
+    # white even at grazing Fresnel (box radiance was ~8-10)
+    cards = (("Studio_CardTop", (4.5, 9.0), (0, 0, 5.15), (0, 0, 0), 2.5, 0.6),
+             ("Studio_CardSideL", (9.0, 2.0), (5.05, 0, 2.0), (0, 0, 0.6), 2.0, 0.5),
+             ("Studio_CardSideR", (9.0, 2.0), (-5.05, 0, 2.0), (0, 0, 0.6), 2.0, 0.5),
+             ("Studio_CardFront", (4.0, 2.0), (0, -7.55, 2.5), (0, 0, 0.5), 2.0, 0.5),
+             ("Studio_CardRear", (4.0, 2.0), (0, 7.55, 2.5), (0, 0, 0.5), 1.5, 0.5))
+    for name, size, loc, aim, strength, edge in cards:
+        if name not in bpy.data.objects:
+            _reflection_card(name, size, loc, aim, strength, edge)
 
 
 def render_view(path, loc, target=(0, 0, 0.55), lens=50, ortho=None):
