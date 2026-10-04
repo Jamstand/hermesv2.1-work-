@@ -3,7 +3,7 @@ Body_Aluminum                      Body             Aluminum       4092
 Body_AmberReflector                Body             AmberReflector 216
 Body_Battery                       Body             Battery        108
 Body_BlackGloss                    Body             BlackGloss     2248
-Body_BlackMatte                    Body             BlackMatte     8876
+Body_BlackMatte                    Body             BlackMatte     9249
 Body_BulbRed                       Body             BulbRed        1728
 Body_Carpet                        Body             Carpet         883
 Body_Chrome                        Body             Chrome         3388
@@ -17,15 +17,15 @@ Body_Glass                         Body             Glass          4344
 Body_Headliner                     Body             Headliner      1409
 Body_Hose                          Body             Hose           1060
 Body_Housing                       Body             Housing        915
-Body_Interior                      Body             Interior       10699
+Body_Interior                      Body             Interior       10693
 Body_InteriorTrim                  Body             InteriorTrim   492
 Body_Leather                       Body             Leather        264
 Body_LensClear                     Body             LensClear      3968
 Body_Mirror                        Body             Mirror         12
-Body_Paint_1                       Body             Paint          11365
-Body_Paint_2                       Body             Paint          11638
-Body_Paint_3                       Body             Paint          10633
-Body_Paint_4                       Body             Paint          11161
+Body_Paint_1                       Body             Paint          11343
+Body_Paint_2                       Body             Paint          11391
+Body_Paint_3                       Body             Paint          10612
+Body_Paint_4                       Body             Paint          11138
 Body_PlateText                     Body             PlateText      1848
 Body_PlateWhite                    Body             PlateWhite     240
 Body_Radiator                      Body             Radiator       360
@@ -57,7 +57,7 @@ Caliper_FR_Caliper                 Caliper_FR       Caliper        216
 Caliper_RL_Caliper                 Caliper_RL       Caliper        216
 Caliper_RR_Caliper                 Caliper_RR       Caliper        216
 Door_L_BlackGloss                  Door_L           BlackGloss     998
-Door_L_BlackMatte                  Door_L           BlackMatte     788
+Door_L_BlackMatte                  Door_L           BlackMatte     1196
 Door_L_Chrome                      Door_L           Chrome         288
 Door_L_Glass                       Door_L           Glass          1588
 Door_L_Interior                    Door_L           Interior       1306
@@ -65,7 +65,7 @@ Door_L_InteriorTrim                Door_L           InteriorTrim   216
 Door_L_Mirror                      Door_L           Mirror         12
 Door_L_Paint                       Door_L           Paint          2142
 Door_R_BlackGloss                  Door_R           BlackGloss     1248
-Door_R_BlackMatte                  Door_R           BlackMatte     922
+Door_R_BlackMatte                  Door_R           BlackMatte     1368
 Door_R_Chrome                      Door_R           Chrome         288
 Door_R_Glass                       Door_R           Glass          1928
 Door_R_Interior                    Door_R           Interior       1349
@@ -73,9 +73,8 @@ Door_R_InteriorTrim                Door_R           InteriorTrim   216
 Door_R_Mirror                      Door_R           Mirror         12
 Door_R_Paint                       Door_R           Paint          2045
 Hood_Badge                         Hood             Badge          124
-Hood_BlackMatte                    Hood             BlackMatte     39
 Hood_Interior                      Hood             Interior       1135
-Hood_Paint                         Hood             Paint          3939
+Hood_Paint                         Hood             Paint          3978
 Hood_Reflector                     Hood             Reflector      209
 SteeringWheel_Leather              SteeringWheel    Leather        1644
 Light_Brake_C                      Trunk            LensRed        108
@@ -109,4 +108,4 @@ Wheel_RR_Rim                       Wheel_RR         Rim            3580
 Wheel_RR_Rubber                    Wheel_RR         Rubber         5888
 Wheel_RR_Underbody                 Wheel_RR         Underbody      560
 
-109 parts, 193516 triangles total, max 11638 per part (Roblox cap 20000)
+108 parts, 194424 triangles total, max 11391 per part (Roblox cap 20000)

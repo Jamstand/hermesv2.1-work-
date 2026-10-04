@@ -129,7 +129,6 @@ local PARTS = {
 	Door_R_Mirror = { "Door_R", "Mirror" },
 	Door_R_Paint = { "Door_R", "Paint" },
 	Hood_Badge = { "Hood", "Badge" },
-	Hood_BlackMatte = { "Hood", "BlackMatte" },
 	Hood_Interior = { "Hood", "Interior" },
 	Hood_Paint = { "Hood", "Paint" },
 	Hood_Reflector = { "Hood", "Reflector" },
