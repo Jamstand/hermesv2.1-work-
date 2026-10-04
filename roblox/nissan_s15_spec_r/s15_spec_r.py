@@ -51,7 +51,7 @@ from mathutils.bvhtree import BVHTree
 
 STUD = 0.28                    # metres per Roblox stud
 PAINT_PRESETS = {
-    "lightning_yellow": (0.80, 0.62, 0.012),    # sampled from the reference set
+    "lightning_yellow": (0.78, 0.58, 0.004),    # matched to the reference set
     "pearl_white": (0.86, 0.86, 0.83),
     "sparkling_silver": (0.55, 0.56, 0.57),
     "brilliant_blue": (0.02, 0.10, 0.45),
@@ -252,24 +252,27 @@ def material(name, color, metallic=0.0, rough=0.5, alpha=1.0, emit=None,
 
 def setup_materials():
     material("Paint", (0.20, 0.20, 0.21) if CLAY else PAINT_PRESETS[PAINT],
-             metallic=0.15, rough=0.28, coat=1.0)
+             metallic=0.0, rough=0.12, coat=1.0)
     material("BlackGloss", (0.01, 0.01, 0.012), rough=0.18, coat=0.5)
     material("BlackMatte", (0.018, 0.018, 0.02), rough=0.75)
     material("Rubber", (0.012, 0.012, 0.012), rough=0.85)
-    material("Glass", (0.02, 0.024, 0.028), rough=0.02, alpha=0.62,
-             transmission=0.25, ior=1.5)
+    material("Glass", (0.05, 0.065, 0.065), rough=0.02, alpha=0.38,
+             transmission=0.6, ior=1.5)
     material("Chrome", (0.9, 0.9, 0.92), metallic=1.0, rough=0.08)
     material("Reflector", (0.75, 0.76, 0.78), metallic=1.0, rough=0.15)
     material("LensClear", (0.9, 0.92, 0.95), rough=0.02, alpha=0.25,
              transmission=0.9, ior=1.5)
-    material("LensRed", (0.45, 0.0, 0.01), rough=0.06, alpha=0.62,
-             transmission=0.2, emit=(0.5, 0.0, 0.0), emit_strength=0.25)
+    material("LensRed", (0.30, 0.01, 0.015), rough=0.05, alpha=0.5,
+             transmission=0.3, emit=(0.5, 0.0, 0.0), emit_strength=0.1)
     material("BulbRed", (0.75, 0.02, 0.02), rough=0.25, emit=(0.8, 0.0, 0.0),
              emit_strength=0.6)
     material("LensAmber", (0.95, 0.42, 0.02), rough=0.1, alpha=0.85,
              transmission=0.3)
-    material("LensSmoke", (0.12, 0.03, 0.03), rough=0.05, alpha=0.8,
-             transmission=0.3)
+    material("LensSmoke", (0.07, 0.07, 0.08), rough=0.05, alpha=0.45,
+             transmission=0.4)
+    material("TailAmber", (0.45, 0.20, 0.02), rough=0.05, alpha=0.5, transmission=0.3)
+    material("AmberReflector", (0.95, 0.45, 0.03), rough=0.3, emit=(0.9, 0.4, 0.0),
+             emit_strength=0.15)
     material("Housing", (0.03, 0.03, 0.035), rough=0.55)
     material("Interior", (0.045, 0.045, 0.05), rough=0.8)
     material("InteriorTrim", (0.10, 0.10, 0.11), rough=0.5)
@@ -1023,12 +1026,12 @@ def build_rim(spokes=5, segments=72):
     ]
     revolve(barrel, 60, closed=True, mat=0, bm=bm)
     # centre hub: concave face, cap and lug bosses
-    hub = [(0.0, a_out - 0.030), (0.026, a_out - 0.030), (0.030, a_out - 0.033),
-           (0.032, a_out - 0.036), (0.072, a_out - 0.040), (0.082, a_out - 0.046),
-           (0.084, a_out - 0.066), (0.0, a_out - 0.066)]
+    hub = [(0.0, a_out - 0.030), (0.030, a_out - 0.030), (0.034, a_out - 0.033),
+           (0.036, a_out - 0.036), (0.080, a_out - 0.041), (0.090, a_out - 0.047),
+           (0.092, a_out - 0.066), (0.0, a_out - 0.066)]
     revolve(hub, 40, closed=True, mat=0, bm=bm)
-    cap = [(0.0, a_out - 0.024), (0.022, a_out - 0.024), (0.0255, a_out - 0.027),
-           (0.0255, a_out - 0.034), (0.0, a_out - 0.034)]
+    cap = [(0.0, a_out - 0.024), (0.026, a_out - 0.024), (0.0295, a_out - 0.027),
+           (0.0295, a_out - 0.034), (0.0, a_out - 0.034)]
     revolve(cap, 28, closed=True, mat=2, bm=bm)
     # lug nuts on a 5x114.3 pattern
     pcd = 0.1143 / 2
@@ -1039,8 +1042,9 @@ def build_rim(spokes=5, segments=72):
         add_cylinder(bm, c + Vector((0.016, 0, 0)), c + Vector((0.021, 0, 0)),
                      0.0090, segs=6, mat=2, r1=0.005)
         add_cylinder(bm, c - Vector((0.004, 0, 0)), c, 0.0135, segs=12, mat=1)
-    # five wide spokes with a gentle twist and concave face (reference wheel)
-    r_root, r_tip = 0.068, R - 0.012
+    # five broad spokes that flare into the rim, gentle twist, concave face
+    # (reference wheel: ~6 cm wide mid-spoke, ~11 cm where it meets the rim)
+    r_root, r_tip = 0.075, R - 0.010
     for i in range(spokes):
         th0 = 2 * math.pi * i / spokes
         secs = []
@@ -1048,10 +1052,10 @@ def build_rim(spokes=5, segments=72):
         for k in range(n):
             t = k / (n - 1)
             r = lerp(r_root, r_tip, t)
-            th = th0 + 0.10 * t ** 1.3                       # twist towards the rim
-            half_w = lerp(0.027, 0.021, t) + 0.006 * smoothstep(0.75, 1.0, t)
-            depth = lerp(0.032, 0.022, t)
-            face_a = lerp(a_out - 0.040, a_out - 0.013, t ** 0.8)   # concave
+            th = th0 + 0.06 * t ** 1.3                       # twist towards the rim
+            half_w = lerp(0.030, 0.027, t) + 0.029 * smoothstep(0.55, 1.0, t) ** 1.5
+            depth = lerp(0.034, 0.022, t)
+            face_a = lerp(a_out - 0.042, a_out - 0.012, t ** 0.8)   # concave
             cy, sy = math.cos(th), math.sin(th)
             radial = Vector((0, cy, sy))
             tang = Vector((0, -sy, cy))
@@ -1184,7 +1188,39 @@ def offset_poly(pts, d):
         nn.normalize()
         cosh = max(0.3, nn.dot(n1))
         out.append(b + nn * (d / cosh))
-    return [(p.x, p.y) for p in out]
+    out = [(p.x, p.y) for p in out]
+    if d > 0 and _self_intersects(out):      # a notch narrower than 2d folds over:
+        return offset_poly(_convex_hull(pts), d)   # grow its (enclosing) hull instead
+    return out
+
+
+def _self_intersects(pts):
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    n = len(pts)
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue                     # neighbours share a vertex
+            c, e = pts[j], pts[(j + 1) % n]
+            if (cross(a, b, c) * cross(a, b, e) < 0) and (cross(c, e, a) * cross(c, e, b) < 0):
+                return True
+    return False
+
+
+def _convex_hull(pts):
+    P = sorted(set((float(x), float(y)) for x, y in pts))
+
+    def half(seq):
+        h = []
+        for p in seq:
+            while len(h) >= 2 and ((h[-1][0] - h[-2][0]) * (p[1] - h[-2][1])
+                                   - (h[-1][1] - h[-2][1]) * (p[0] - h[-2][0])) <= 0:
+                h.pop()
+            h.append(p)
+        return h
+    return half(P)[:-1] + half(P[::-1])[:-1]
 
 
 def volume(name, front=None, side=None, plan=None, xr=(-BIG, BIG),
@@ -1381,6 +1417,14 @@ def plan_windshield():
 def plan_backlight():
     yt, yb = 0.905, 1.475
     side = sample(lambda y: (X_RAIL(y) - 0.040, y), yt, yb, 7)
+    if BODY_MESH:     # the reconstruction's glass wraps back in plan (measured on
+        side = sample(lambda y: (X_RAIL(y) - 0.040, y), yt, 1.535, 7)   # its texture)
+        arc = [(0.588, 1.560), (0.556, 1.580), (0.500, 1.608), (0.450, 1.628),
+               (0.400, 1.642), (0.300, 1.661), (0.150, 1.668)]
+        half = side + arc
+        pts = half + [(0.0, 1.670)] + [(-x, y) for x, y in reversed(half)]
+        n = len(pts)
+        return fillet(pts, {0: 0.07, 6: 0.02, n - 7: 0.02, n - 1: 0.07})
     pts = side + [(-x, y) for x, y in reversed(side)]
     radii = {0: 0.07, 6: 0.05, 7: 0.05, 13: 0.07}
     return fillet(pts, radii)
@@ -1418,6 +1462,17 @@ def trunk_outlines():
     yf = 1.530
     plan = fillet([(-0.62, yf), (0.62, yf), (0.62, 2.6), (-0.62, 2.6)],
                   {0: 0.03, 1: 0.03})
+    if BODY_MESH:     # front edge follows the rear glass, 4.5 cm behind it
+        front = [(0.620, 1.592), (0.588, 1.605), (0.556, 1.625), (0.500, 1.653),
+                 (0.450, 1.673), (0.400, 1.687), (0.300, 1.706), (0.150, 1.713)]
+        plan = fillet([(-x, y) for x, y in front] + [(0.0, 1.715)] + front[::-1]
+                      + [(0.62, 2.6), (-0.62, 2.6)], {0: 0.02, 16: 0.02})
+    if BODY_MESH:     # lid edge runs just above the tail lights, then straight across
+        half = [(0.326, 0.700), (0.329, 0.731), (0.346, 0.755), (0.367, 0.776),
+                (0.390, 0.799), (0.414, 0.821), (0.438, 0.843), (0.462, 0.862),
+                (0.486, 0.875), (0.508, 0.889), (0.62, 0.890), (0.62, 1.6)]
+        rear = half + [(-x, z) for x, z in reversed(half)]
+        return plan, fillet(rear, {0: 0.006, 1: 0.006, 22: 0.006, 23: 0.006})
     rear = [(-0.240, 0.702), (0.240, 0.702), (0.240, 0.795), (0.30, 0.807),
             (0.42, 0.829), (0.62, 0.869), (0.62, 1.6), (-0.62, 1.6), (-0.62, 0.869),
             (-0.42, 0.829), (-0.30, 0.807), (-0.240, 0.795)]
@@ -1428,6 +1483,13 @@ def trunk_outlines():
 def head_front():
     """Headlight outline, front view (x, z), +X side: short squared inner end
     on the bonnet line, tall rounded outer end (from the reference)."""
+    if BODY_MESH:     # measured on the reconstruction's texture; the outer end
+        pts = [(0.320, 0.598), (0.338, 0.560), (0.40, 0.565), (0.50, 0.568),   # runs on
+               (0.60, 0.571), (0.70, 0.577), (0.740, 0.581), (0.762, 0.598),   # for the
+               (0.830, 0.600), (0.830, 0.666), (0.766, 0.664), (0.742, 0.680),  # wrap
+               (0.700, 0.707), (0.665, 0.702), (0.600, 0.688), (0.530, 0.672),
+               (0.470, 0.662), (0.400, 0.651), (0.372, 0.640), (0.345, 0.622)]
+        return fillet(pts, {0: 0.008, 1: 0.01, 11: 0.012, 12: 0.01})
     pts = [(0.312, 0.590), (0.318, 0.528), (0.45, 0.530), (0.60, 0.536),
            (0.72, 0.548), (0.79, 0.566), (0.826, 0.600), (0.815, 0.645),
            (0.77, 0.667), (0.66, 0.660), (0.52, 0.638), (0.40, 0.610)]
@@ -1435,13 +1497,32 @@ def head_front():
 
 
 def head_plan():
+    if BODY_MESH:     # lamp's rear edge seen from above, 6 cm deeper for the housing
+        return [(0.30, -2.6), (0.98, -2.6), (0.98, -1.66), (0.775, -1.662),
+                (0.742, -1.734), (0.695, -1.77), (0.607, -1.842), (0.50, -1.914),
+                (0.428, -1.95), (0.375, -1.986), (0.33, -2.03)]
     return [(0.29, -2.6), (0.98, -2.6), (0.98, -1.79), (0.78, -1.83),
             (0.55, -1.93), (0.40, -1.99), (0.29, -2.03)]
+
+
+def head_side():
+    """Headlight wrap seen from the side (y, z); open towards the front."""
+    return [(-2.60, 0.552), (-2.10, 0.557), (-2.00, 0.567), (-1.921, 0.574),
+            (-1.876, 0.575), (-1.831, 0.587), (-1.786, 0.604), (-1.741, 0.624),
+            (-1.722, 0.645), (-1.741, 0.667), (-1.786, 0.680), (-1.831, 0.690),
+            (-1.876, 0.700), (-1.92, 0.712), (-2.60, 0.712)]
 
 
 def tail_rear():
     """Tail light outline, rear view (x, z), +X side (wraps onto the side):
     tall outer end, blunt rounded inner end (reference)."""
+    if BODY_MESH:     # measured: pointed inner end, sloping top, wrap at the corner
+        pts = [(0.333, 0.700), (0.70, 0.699), (0.97, 0.699), (0.97, 0.886),
+               (0.80, 0.886), (0.775, 0.842), (0.757, 0.839), (0.733, 0.857),
+               (0.70, 0.867), (0.65, 0.878), (0.585, 0.882), (0.513, 0.881),
+               (0.493, 0.866), (0.469, 0.854), (0.445, 0.835), (0.421, 0.813),
+               (0.397, 0.791), (0.374, 0.768), (0.353, 0.748), (0.336, 0.724)]
+        return fillet(pts, {0: 0.004, 11: 0.012})
     pts = [(0.252, 0.788), (0.258, 0.728), (0.40, 0.708), (0.60, 0.698),
            (0.76, 0.698), (0.86, 0.703), (0.97, 0.712), (0.97, 0.878),
            (0.82, 0.886), (0.62, 0.862), (0.42, 0.822), (0.30, 0.800)]
@@ -1449,12 +1530,25 @@ def tail_rear():
 
 
 def tail_plan():
+    if BODY_MESH:     # lamp's front edge seen from above, 6 cm deeper for the housing
+        return [(0.30, 2.08), (0.364, 2.07), (0.568, 2.033), (0.619, 1.961),
+                (0.694, 1.925), (0.765, 1.90), (0.98, 1.89), (0.98, 2.7), (0.30, 2.7)]
     return [(0.18, 2.13), (0.40, 2.112), (0.62, 2.045), (0.74, 1.965),
             (0.84, 1.905), (0.98, 1.885), (0.98, 2.7), (0.18, 2.7)]
 
 
+def tail_side():
+    """Tail light wrap seen from the side (y, z); open towards the back."""
+    return [(1.949, 0.839), (1.994, 0.874), (2.039, 0.880), (2.06, 0.886),
+            (2.70, 0.886), (2.70, 0.697), (2.054, 0.698), (2.009, 0.702), (1.964, 0.769)]
+
+
 def intake_main():
     """Central intake, front view (x, z): flat top, bulging sides."""
+    if BODY_MESH:     # measured on the reconstruction
+        return fillet([(-0.31, 0.252), (0.31, 0.252), (0.362, 0.298), (0.375, 0.348),
+                       (0.34, 0.405), (-0.34, 0.405), (-0.375, 0.348), (-0.362, 0.298)],
+                      {0: 0.03, 1: 0.03, 2: 0.02, 3: 0.02, 4: 0.03, 5: 0.03, 6: 0.02, 7: 0.02})
     return fillet([(-0.30, 0.252), (0.30, 0.252), (0.352, 0.295), (0.365, 0.345),
                    (0.33, 0.395), (-0.33, 0.395), (-0.365, 0.345), (-0.352, 0.295)],
                   {0: 0.03, 1: 0.03, 2: 0.02, 3: 0.02, 4: 0.03, 5: 0.03, 6: 0.02, 7: 0.02})
@@ -1465,8 +1559,11 @@ def intake_outer():
     pts = fillet([(0.50, 0.266), (0.625, 0.268), (0.662, 0.300), (0.668, 0.355),
                   (0.648, 0.392), (0.478, 0.386), (0.462, 0.330)],
                  {0: 0.025, 1: 0.03, 2: 0.02, 3: 0.02, 4: 0.03, 5: 0.025, 6: 0.02})
-    if BODY_MESH:                   # the reconstructed bumper's openings run a little larger
-        pts = [(x + 0.012 * smoothstep(0.50, 0.66, x), z) for x, z in offset_poly(pts, 0.008)]
+    if BODY_MESH:     # measured on the reconstruction
+        pts = offset_poly([(0.471, 0.339), (0.468, 0.375), (0.488, 0.395), (0.524, 0.400),
+                           (0.596, 0.402), (0.668, 0.396), (0.683, 0.372), (0.685, 0.336),
+                           (0.676, 0.300), (0.655, 0.281), (0.619, 0.275), (0.547, 0.272),
+                           (0.511, 0.274), (0.487, 0.289), (0.476, 0.313)], 0.003)
     return pts
 
 
@@ -1530,9 +1627,10 @@ def build_cavities(inner):
 def lamp_volumes(grow=0.0, tag=""):
     """Headlight and tail light volumes for both sides (one object each)."""
     hl = volume("vol_head" + tag, front=head_front(), plan=head_plan(), grow=grow,
-                mat="Housing", yr=(-2.7, -1.6), zr=(0.3, 1.2))
-    hl.data.materials[0] = MATS["Housing"]
+                side=head_side() if BODY_MESH else None,
+                mat="Reflector", yr=(-2.7, -1.6), zr=(0.3, 1.2))
     tl = volume("vol_tail" + tag, front=tail_rear(), plan=tail_plan(), grow=grow,
+                side=tail_side() if BODY_MESH else None,
                 mat="Housing", yr=(1.8, 2.8), zr=(0.55, 1.2))
     return hl, tl
 
@@ -1672,6 +1770,130 @@ def symmetrize_x(ob):
     bm.free()
 
 
+def taubin(ob, iters=6, lam=0.5, mu=-0.53):
+    """Non-shrinking smoothing (irons out reconstruction ripples)."""
+    import numpy as np
+    V = _verts(ob)
+    E = np.empty(len(ob.data.edges) * 2, dtype=np.int64)
+    ob.data.edges.foreach_get("vertices", E)
+    E = E.reshape(-1, 2)
+    deg = np.maximum(np.bincount(E.ravel(), minlength=len(V)), 1)[:, None]
+
+    def lap(P):
+        S = np.zeros_like(P)
+        np.add.at(S, E[:, 0], P[E[:, 1]])
+        np.add.at(S, E[:, 1], P[E[:, 0]])
+        return S / deg - P
+
+    for _ in range(iters):
+        V = V + lam * lap(V)
+        V = V + mu * lap(V)
+    _set_verts(ob, V)
+
+
+# large, gently curved panels: their outer skin is pulled onto a smooth
+# fitted surface, which removes the reconstruction's lumps that glossy paint
+# shows up (and what is left of the moulded wing's feet on the boot lid).
+# "top" panels are heights z(x, y) seen from above, "rear" ones depths y(x, z)
+# seen from behind; (half-width in x, range of the other coordinate)
+FAIR_PANELS = {"hood": ("top", 0.64, -1.98, -0.90), "roof": ("top", 0.52, -0.10, 0.88),
+               "boot": ("top", 0.64, 1.50, 2.10), "tail": ("rear", 0.50, 0.71, 0.87)}
+
+
+def fair_panels(ob, edge=0.05, deg_x=4, deg_v=7):
+    import numpy as np
+    from mathutils.bvhtree import BVHTree
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    V = _verts(ob)
+    N = np.empty(len(V) * 3)
+    ob.data.vertices.foreach_get("normal", N)
+    N = N.reshape(-1, 3)
+    for name, (kind, xh, v0, v1) in FAIR_PANELS.items():
+        # h: the coordinate that is faired, v: the one along the panel
+        h, v, ray = (2, 1, Vector((0, 0, -1))) if kind == "top" else (1, 2, Vector((0, -1, 0)))
+        sgn = -ray[h]                           # +1: the outer skin is the highest h
+        x = V[:, 0]
+        cand = (np.abs(x) < xh) & (V[:, v] > v0) & (V[:, v] < v1) & (sgn * N[:, h] > 0.4)
+        idx = np.nonzero(cand)[0]
+        outer = []
+        for i in idx:                           # outer skin only (not the far side)
+            o = Vector(V[i])
+            o[h] = sgn * 5.0
+            hit = tree.ray_cast(o, ray)[0]
+            outer.append(hit is not None and sgn * (V[i, h] - hit[h]) > -0.004)
+        sel = idx[np.array(outer, bool)] if len(idx) else idx
+        if name == "boot":                      # not the rear glass (cut away; and
+            bl = offset_poly(plan_backlight(), 0.012)   # its edge is a step)
+            sel = sel[[not _in_poly(V[i, 0], V[i, 1], bl) for i in sel]]
+        xn = V[sel, 0] / xh
+        vn = (V[sel, v] - v0) / (v1 - v0) * 2 - 1
+        A = np.stack([xn ** (2 * i) * vn ** j for i in range(deg_x) for j in range(deg_v)], 1)
+        hv = V[sel, h]
+        keep = np.ones(len(sel), bool)
+        for _ in range(6):                      # robust: ignore the lumps
+            coef, *_ = np.linalg.lstsq(A[keep], hv[keep], rcond=None)
+            r = A @ coef - hv
+            keep = np.abs(r) < max(3 * 1.4826 * np.median(np.abs(r[keep])), 0.002)
+        d = np.minimum.reduce([xh - np.abs(V[sel, 0]), V[sel, v] - v0, v1 - V[sel, v]])
+        w = (smoothstep_np(0.0, edge, d) * smoothstep_np(0.4, 0.7, sgn * N[sel, h])
+             * (1 - smoothstep_np(0.02, 0.035, np.abs(r))))   # (where the fit fails)
+        V[sel, h] += w * r
+        print(f"[body] faired {name}: {len(sel)} vertices, "
+              f"rms {1000 * np.sqrt(np.mean((w * r) ** 2)):.1f} mm, "
+              f"max {1000 * np.abs(w * r).max():.1f} mm")
+    _set_verts(ob, V)
+
+
+def self_intersections(ob):
+    """Faces of ob that cut through a face they share no vertex with."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(bm)
+    bad = set()
+    for a, b in tree.overlap(tree):
+        if a != b and not set(bm.faces[a].verts) & set(bm.faces[b].verts):
+            bad.update((a, b))
+    faces = [[v.index for v in bm.faces[i].verts] for i in bad]
+    bm.free()
+    return faces
+
+
+def untangle(ob, V0, rounds=4):
+    """Put the vertices around any self-intersection back where they were
+    before smoothing (V0), widening the patch until the mesh is clean."""
+    import numpy as np
+    E = np.empty(len(ob.data.edges) * 2, dtype=np.int64)
+    ob.data.edges.foreach_get("vertices", E)
+    E = E.reshape(-1, 2)
+    for k in range(rounds):
+        faces = self_intersections(ob)
+        if not faces:
+            return
+        mask = np.zeros(len(V0), bool)
+        mask[[i for f in faces for i in f]] = True
+        for _ in range(2 + 2 * k):              # grow the patch
+            grow = mask.copy()
+            grow[E[mask[E[:, 0]], 1]] = True
+            grow[E[mask[E[:, 1]], 0]] = True
+            mask = grow
+        V = _verts(ob)
+        V[mask] = V0[mask]
+        _set_verts(ob, V)
+        print(f"[body] untangled {len(faces)} self-intersecting faces ({mask.sum()} vertices)")
+    if self_intersections(ob):
+        print("[body] WARNING: self-intersections left; booleans may fail")
+
+
+def smoothstep_np(a, b, t):
+    import numpy as np
+    t = np.clip((t - a) / (b - a), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
 def _robust_fit(A, b, iters=5, tol=0.008):
     """Least squares that ignores samples sitting more than tol *above* the
     fit (spoiler pedestals, mirror stalks): returns fitted values."""
@@ -1727,6 +1949,46 @@ def strip_wipers(ob):
     # no body under a sample: leave it alone (the cutter rises out of the way)
     H = np.where(np.isfinite(H), H + 0.003, 1.9)
     cut = field_cutter("cut_wipers", xs, ys, H, lambda u, v, h: (u, v, h), 2.0)
+    boolean(ob, cut)
+    delete_object(cut)
+
+
+def strip_spoiler(ob):
+    """Cut a moulded rear spoiler off the boot lid (this script adds its own).
+    The lid height is ray-cast from inside on dense rows across the car. Under
+    the spoiler's feet (|x| 0.46..0.66) the rays exit through the spoiler, so
+    there the height comes from a smooth crown fit to the rest of the row;
+    behind the lid's rear lip the last lid height is held, so the cut never
+    reaches the tail panel or the lights."""
+    import numpy as np
+    bvh = bvh_of(ob)
+    xs = np.linspace(-0.70, 0.70, 57)
+    ys = np.arange(1.66, Y_TAIL + 0.08, 0.008)
+    H = np.full((len(ys), len(xs)), np.nan)
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            hit = bvh.ray_cast(Vector((x, y, 0.50)), Vector((0, 0, 1)))
+            if hit[0] is not None and hit[1].z > 0:      # exited the body (started inside)
+                H[j, i] = hit[0].z
+    A = np.stack([np.ones_like(xs), xs ** 2, xs ** 4, xs ** 6], 1)
+    feet = (np.abs(xs) > 0.46) & (np.abs(xs) < 0.66)
+    centre = np.abs(xs) < 0.30
+    prev, prev_mid, held = None, None, False
+    for j in range(len(ys)):
+        ok = np.isfinite(H[j]) & ~feet
+        if ok.sum() > 10:
+            coef, *_ = np.linalg.lstsq(A[ok], H[j][ok], rcond=None)
+            fit = A @ coef
+            H[j] = np.where(feet & np.isfinite(H[j]) & (H[j] > fit + 0.006), fit, H[j])
+        mid = np.nanmedian(H[j][centre]) if np.isfinite(H[j][centre]).any() else np.nan
+        if prev is not None and (held or not np.isfinite(mid) or mid < prev_mid - 0.008):
+            held = True
+            H[j] = prev
+        else:
+            prev, prev_mid = H[j].copy(), mid
+    # no body under a sample: leave it alone (the cutter rises out of the way)
+    H = np.where(np.isfinite(H), H + 0.006, 1.9)
+    cut = field_cutter("cut_spoiler", xs, ys, H, lambda u, v, h: (u, v, h), 2.0)
     boolean(ob, cut)
     delete_object(cut)
 
@@ -1963,9 +2225,15 @@ def body_from_mesh(path):
     decimate(ob, min(1.0, 4 * BODY_TRIS / max(1, tri_count(ob))))
     strip_wipers(ob)
     strip_mirrors(ob)
+    strip_spoiler(ob)
     drop_islands(ob)
-    sdf_remesh(ob, [0.0], BODY_VOXEL)          # watertight again after the cuts
+    taubin(ob, 40)                             # iron out reconstruction ripples
+    sdf_remesh(ob, [0.0], BODY_VOXEL)          # watertight (and untangled) again
     decimate(ob, min(1.0, BODY_TRIS / max(1, tri_count(ob))))
+    V0 = _verts(ob)
+    taubin(ob, 4)                              # light: more folds thin lips over
+    fair_panels(ob)
+    untangle(ob, V0)                           # (exact booleans fail on folds)
     bm = bmesh.new()
     bm.from_mesh(ob.data)
     check_manifold(bm, "body mesh")
@@ -2078,6 +2346,20 @@ def ray_surface(bvh, origin, direction):
     return hit[0]
 
 
+def paint_faces(ob, test, mat_name):
+    """Give the faces whose centre and normal pass test(c, n) a material."""
+    me = ob.data
+    if MATS[mat_name].name not in [m.name for m in me.materials if m]:
+        me.materials.append(MATS[mat_name])
+    idx = [m.name if m else "" for m in me.materials].index(MATS[mat_name].name)
+    count = 0
+    for poly in me.polygons:
+        if test(poly.center, poly.normal):
+            poly.material_index = idx
+            count += 1
+    return count
+
+
 def split_by_plane(ob, co, no, name_neg, name_pos):
     """Split a mesh object by a plane into two objects (neg / pos side)."""
     res = []
@@ -2115,11 +2397,19 @@ def cut_lamps_and_openings(body, ref):
                              mats=["LensRed"])
         # tail lamp zones (reference): amber indicator strip along the top,
         # clear reverse lamp at the inner end, red tail/brake below
-        lower, mid = split_by_plane(lens, Vector((0, 0, 0.802)), Vector((0, 0, 1)),
-                                    "tmp_lower_" + side, "Light_Indicator_R" + side)
-        inner_, outer = split_by_plane(lower, Vector((0.40 * sx, 0, 0)), Vector((sx, 0, 0)),
-                                       "Light_Reverse_" + side, "Light_Brake_" + side)
-        for ob, mname in ((inner_, "LensClear"), (mid, "LensAmber"), (outer, "LensRed")):
+        if BODY_MESH:   # smoked lens; reverse zone is the whole pointed inner end
+            inner_, rest = split_by_plane(lens, Vector((0.488 * sx, 0, 0)), Vector((sx, 0, 0)),
+                                          "Light_Reverse_" + side, "tmp_outer_" + side)
+            outer, mid = split_by_plane(rest, Vector((0, 0, 0.806)), Vector((0, 0, 1)),
+                                        "Light_Brake_" + side, "Light_Indicator_R" + side)
+            zone_mats = (("LensSmoke", "TailAmber", "LensRed"))
+        else:
+            lower, mid = split_by_plane(lens, Vector((0, 0, 0.802)), Vector((0, 0, 1)),
+                                        "tmp_lower_" + side, "Light_Indicator_R" + side)
+            inner_, outer = split_by_plane(lower, Vector((0.40 * sx, 0, 0)), Vector((sx, 0, 0)),
+                                           "Light_Reverse_" + side, "Light_Brake_" + side)
+            zone_mats = ("LensClear", "LensAmber", "LensRed")
+        for ob, mname in zip((inner_, mid, outer), zone_mats):
             ob.data.materials.clear()
             ob.data.materials.append(MATS[mname])
         out[inner_.name], out[mid.name], out[outer.name] = inner_, mid, outer
@@ -2137,6 +2427,15 @@ def cut_lamps_and_openings(body, ref):
     both_sides(cut)
     boolean(body, cut)
     delete_object(cut)
+    if BODY_MESH:
+        # the reconstruction's intake recesses and scuttle panel are black
+        # trim, not body colour
+        polys = [offset_poly(intake_main(), -0.003), offset_poly(intake_outer(), -0.003),
+                 [(-x, z) for x, z in offset_poly(intake_outer(), -0.003)]]
+        paint_faces(body, lambda c, n: -2.25 < c.y < -1.85 and
+                    any(_in_poly(c.x, c.z, q) for q in polys), "BlackMatte")
+        paint_faces(body, lambda c, n: -0.80 < c.y < -0.69 and c.z > 0.84 and
+                    abs(c.x) < 0.72 and n.z > 0.3, "BlackMatte")
     # side repeaters on the front fenders
     cut = volume("cut_marker", side=side_marker(), xr=(0.775, 1.3), mat="Housing")
     out["Light_Indicator_SL"] = surface_patch(ref, cut, "Light_Indicator_SL", inset=0.001,
@@ -2173,9 +2472,27 @@ def split_panel(body, layer, name, gap=0.0022, mats=None, exclude=None, **vol_kw
     boolean(outer_v, layer, "INTERSECT")
     if exclude:
         boolean(outer_v, exclude)
+    saved, nm0 = body.data.copy(), nonmanifold_edges(body)
     boolean(body, outer_v)
+    if nonmanifold_edges(body) > nm0:  # the exact solver sometimes doubles faces where
+        old = body.data               # a cut meets cavity walls, and a non-manifold
+        body.data = saved             # body breaks every later cut: redo it in
+        bpy.data.meshes.remove(old)   # self-intersection mode
+        boolean(body, outer_v, use_self=True)
+        print(f"[panels] {name}: gap cut redone in self-intersection mode "
+              f"({nonmanifold_edges(body)} non-manifold edges left)")
+    else:
+        bpy.data.meshes.remove(saved)
     delete_object(outer_v)
     return panel
+
+
+def nonmanifold_edges(ob):
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    n = sum(1 for e in bm.edges if not e.is_manifold)
+    bm.free()
+    return n
 
 
 def build_panels(body, layer):
@@ -2413,13 +2730,24 @@ def build_exterior_details(ref):
         F = "F" + side
         # ---- headlight internals --------------------------------------
         chrome, emit, amber, dark = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
-        for (x, z, R, kind) in ((0.445, 0.575, 0.030, "high"), (0.600, 0.592, 0.035, "proj"),
-                                (0.762, 0.610, 0.025, "ind")):
+        if BODY_MESH:   # measured: reflector bowl, projector bowl, amber indicator
+            units = ((0.420, 0.607, 0.042, "high"), (0.565, 0.620, 0.050, "proj"),
+                     (0.688, 0.625, 0.033, "ind"))
+        else:
+            units = ((0.445, 0.575, 0.030, "high"), (0.600, 0.592, 0.035, "proj"),
+                     (0.762, 0.610, 0.025, "ind"))
+        for (x, z, R, kind) in units:
             hit, _ = ray(bvh, (x * sx, -4.0, z), (0, 1, 0))
             ys = hit.y + 0.028
             c = Vector((x * sx, ys + 0.004, z))
+            if BODY_MESH:                       # chrome bezel ring around each unit
+                ring(chrome, c + Vector((0, -0.003, 0)), (0, -1, 0), R - 0.003, R + 0.004, 0.006)
             if kind == "ind":
-                bowl(amber, c, (0, -1, 0), R, 0.035)
+                if BODY_MESH:
+                    bowl(chrome, c + Vector((0, 0.004, 0)), (0, -1, 0), R, 0.035)
+                    disc(amber, c + Vector((0, 0.006, 0)), (0, -1, 0), R * 0.72, dome=0.010)
+                else:
+                    bowl(amber, c, (0, -1, 0), R, 0.035)
                 disc(amber, c + Vector((0, 0.020, 0)), (0, -1, 0), 0.008, dome=0.006)
                 continue
             bowl(chrome, c, (0, -1, 0), R, 0.05)
@@ -2436,8 +2764,20 @@ def build_exterior_details(ref):
 
         # ---- tail light internals (rings behind the red lens) --------
         rings, red, clear = bmesh.new(), bmesh.new(), bmesh.new()
-        for (x, z, r, kind) in ((0.555, 0.750, 0.037, "red"), (0.705, 0.752, 0.037, "red"),
-                                (0.335, 0.752, 0.026, "clear")):
+        if BODY_MESH:   # reference: three round reds, clear reverse at the pointed end
+            units = ((0.700, 0.755, 0.036, "red"), (0.618, 0.755, 0.036, "red"),
+                     (0.536, 0.755, 0.036, "red"), (0.440, 0.748, 0.031, "clear"))
+            # amber oval reflector behind the top strip
+            hit, _ = ray(bvh, (0.628 * sx, 4.0, 0.834), (0, -1, 0))
+            ov = bmesh.new()
+            prism_from_poly([(x * sx, z) for x, z in ellipse(0.628, 0.834, 0.118, 0.020, 28)],
+                            "y", hit.y - 0.024, hit.y - 0.016, bm=ov)
+            bmesh.ops.recalc_face_normals(ov, faces=ov.faces)
+            make("TailAmberReflector_" + side, ov, ["AmberReflector"])
+        else:
+            units = ((0.555, 0.750, 0.037, "red"), (0.705, 0.752, 0.037, "red"),
+                     (0.335, 0.752, 0.026, "clear"))
+        for (x, z, r, kind) in units:
             hit, _ = ray(bvh, (x * sx, 4.0, z), (0, -1, 0))
             c = Vector((x * sx, hit.y - 0.020, z))
             ring(rings, c, (0, 1, 0), r, r + 0.006, 0.014)
@@ -2552,47 +2892,53 @@ def build_exterior_details(ref):
     make("Wipers", wb, ["BlackMatte"])
 
     # ---- Spec R rear spoiler (rides on the boot lid) ------------------
-    # a mesh body keeps its own moulded spoiler (it is inside the skin layer,
-    # so it opens with the boot lid); only the stop lamp is added to it
+    # (a mesh body's lumpy moulded spoiler is cut off in body_from_mesh and
+    # this one goes where the reference has it: thin blade, long sloped fins)
     if BODY_MESH:
-        wlight = bmesh.new()
-        top = max((ray(bvh, (0.0, y, 3.0), (0, 0, -1))[0] for y in
-                   [1.75 + 0.01 * k for k in range(45)]),
-                  key=lambda h: h.z if h is not None else -1.0)
-        add_box(wlight, top + Vector((0, 0.0, 0.004)), (0.22, 0.030, 0.008), bevel=0.002)
-        make("Light_Brake_C", wlight, ["LensRed"], "Trunk")
+        half, le_y, le_z, chord, pitch0, x_ped, w_ped = 0.62, 1.935, 1.045, 0.195, 2.0, 0.555, 0.024
+    else:
+        half, le_y, le_z, chord, pitch0, x_ped, w_ped = 0.71, 1.870, 1.026, 0.248, 5.0, 0.47, 0.018
     wing, wlight = bmesh.new(), bmesh.new()
     foil = [(0.0, 0.0), (0.014, 0.011), (0.05, 0.019), (0.10, 0.022), (0.15, 0.020),
             (0.20, 0.014), (0.235, 0.007), (0.248, 0.004), (0.248, -0.002),
             (0.20, -0.002), (0.12, -0.004), (0.06, -0.005), (0.018, -0.004)]
+    foil = [(cy * chord / 0.248, cz) for cy, cz in foil]
     secs = []
     span = [i / 20 for i in range(21)]
     for u in span:
-        x = lerp(-0.71, 0.71, u)
+        x = lerp(-half, half, u)
         ax = abs(x)
-        rise = 0.014 * smoothstep(0.52, 0.71, ax) ** 1.4
-        sweep = 0.010 * smoothstep(0.52, 0.71, ax)
-        le = Vector((x, 1.870 + sweep, 1.026 + rise))
-        pitch = math.radians(5.0 + 5.0 * smoothstep(0.55, 0.71, ax))
+        rise = 0.014 * smoothstep(half - 0.19, half, ax) ** 1.4
+        sweep = 0.010 * smoothstep(half - 0.19, half, ax)
+        le = Vector((x, le_y + sweep, le_z + rise))
+        pitch = math.radians(pitch0 + 5.0 * smoothstep(half - 0.16, half, ax))
         sec = []
         for (cy, cz) in foil:
-            yy = cy * math.cos(pitch) - cz * math.sin(pitch) * -1
-            zz = cy * math.sin(pitch) * 1 + cz * math.cos(pitch)
-            sec.append(le + Vector((0.0, yy, zz - 0.0 * cy)))
+            yy = cy * math.cos(pitch) + cz * math.sin(pitch)
+            zz = cy * math.sin(pitch) + cz * math.cos(pitch)
+            sec.append(le + Vector((0.0, yy, zz)))
         secs.append(sec)
     loft_tube(wing, None, secs, mat=0)
-    for x0 in (-0.47, 0.47):
+    for x0 in (-x_ped, x_ped):
         hit, _ = ray(bvh, (x0, 1.99, 3.0), (0, 0, -1))
         zd = hit.z
-        prof = fillet([(1.700, zd - 0.02), (2.085, zd - 0.02), (2.080, 1.040),
-                       (1.905, 1.034), (1.870, 1.026)], {2: 0.01, 3: 0.02, 4: 0.03})
-        prism_from_poly(prof, "x", x0 - 0.018, x0 + 0.018, bm=wing)
+        if BODY_MESH:
+            prof = fillet([(1.745, zd - 0.02), (2.045, zd - 0.02), (2.115, le_z + 0.002),
+                           (1.955, le_z + 0.008), (1.935, le_z)], {2: 0.01, 3: 0.02, 4: 0.03})
+        else:
+            prof = fillet([(1.700, zd - 0.02), (2.085, zd - 0.02), (2.080, 1.040),
+                           (1.905, 1.034), (1.870, 1.026)], {2: 0.01, 3: 0.02, 4: 0.03})
+        prism_from_poly(prof, "x", x0 - w_ped, x0 + w_ped, bm=wing)
     bmesh.ops.recalc_face_normals(wing, faces=wing.faces)
-    add_box(wlight, Vector((0.0, 1.975, 1.050)), (0.22, 0.040, 0.006), bevel=0.002,
-            rot=Matrix.Rotation(math.radians(-5), 3, "X"))
-    if not BODY_MESH:
-        make("Wing", wing, ["Paint"], "Trunk", smooth=45)
-        make("Light_Brake_C", wlight, ["LensRed"], "Trunk")
+    if BODY_MESH:       # stop lamp across the trailing edge
+        te = Vector((0.0, le_y + chord * math.cos(math.radians(pitch0)) + 0.002,
+                     le_z + chord * math.sin(math.radians(pitch0)) + 0.004))
+        add_box(wlight, te, (0.21, 0.006, 0.020), bevel=0.002)
+    else:
+        add_box(wlight, Vector((0.0, 1.975, 1.050)), (0.22, 0.040, 0.006), bevel=0.002,
+                rot=Matrix.Rotation(math.radians(-5), 3, "X"))
+    make("Wing", wing, ["Paint"], "Trunk", smooth=45)
+    make("Light_Brake_C", wlight, ["LensRed"], "Trunk")
 
     # ---- exhaust (single tip, car's left) ------------------------------
     ex, exd = bmesh.new(), bmesh.new()
@@ -2655,9 +3001,23 @@ def build_exterior_details(ref):
     b.transform(m)
     make("Badge_S", b, ["Badge"], "Hood", smooth=None)
     boot_badges, red_r = bmesh.new(), bmesh.new()
+    # (sizes and places measured on the reference for a mesh body)
+    k_rnd, z_rnd = (1.0, 0.816) if BODY_MESH else (1.0, 0.822)
+    script_at, script_wh = ((0.030, 0.738), (0.27, 0.030)) if BODY_MESH else ((0.075, 0.752), None)
+    spec_at, spec_wh = ((-0.200, 0.736), (0.075, 0.022)) if BODY_MESH else ((-0.150, 0.750), None)
+
+    def fit_box(bm, wh):
+        """Scale a text mesh to a width and height (the script is wide and low)."""
+        if wh:
+            xs = [v.co.x for v in bm.verts]
+            ys = [v.co.y for v in bm.verts]
+            bm.transform(Matrix.Diagonal((wh[0] / max(1e-6, max(xs) - min(xs)),
+                                          wh[1] / max(1e-6, max(ys) - min(ys)), 1.0, 1.0)))
+        return bm
+
     # Nissan roundel above the script
-    hit, nrm = ray(bvh, (0.0, 4.0, 0.822), (0, -1, 0))
-    m = frame_matrix(hit + nrm * 0.0015, Vector((-1, 0, 0)), nrm)
+    hit, nrm = ray(bvh, (0.0, 4.0, z_rnd), (0, -1, 0))
+    m = frame_matrix(hit + nrm * 0.0015, Vector((-1, 0, 0)), nrm) @ Matrix.Scale(k_rnd, 4)
     rnd = bmesh.new()
     revolve([(0.026, 0.0), (0.033, 0.0), (0.033, 0.003), (0.026, 0.003)], 32, closed=True,
             bm=rnd, xform=Matrix.Rotation(math.radians(-90), 4, "Y"))
@@ -2668,15 +3028,16 @@ def build_exterior_details(ref):
     rnd.transform(m)
     add_bm(boot_badges, rnd)
     # "Silvia" script (left of centre seen from behind) and "Spec R"
-    hit, nrm = ray(bvh, (0.075, 4.0, 0.752), (0, -1, 0))
-    b = text_mesh("Silvia", 0.040, 0.002, shear=0.32)
+    hit, nrm = ray(bvh, (script_at[0], 4.0, script_at[1]), (0, -1, 0))
+    b = fit_box(text_mesh("Silvia", 0.040, 0.002, shear=0.32), script_wh)
     b.transform(frame_matrix(hit + nrm * 0.001, Vector((-1, 0, 0)), nrm))
     add_bm(boot_badges, b)
-    hit, nrm = ray(bvh, (-0.150, 4.0, 0.750), (0, -1, 0))
-    b = text_mesh("Spec", 0.024, 0.002, shear=0.25, align="RIGHT")
+    hit, nrm = ray(bvh, (spec_at[0], 4.0, spec_at[1]), (0, -1, 0))
+    b = fit_box(text_mesh("Spec", 0.024, 0.002, shear=0.25, align="RIGHT"), spec_wh)
     b.transform(frame_matrix(hit + nrm * 0.001, Vector((-1, 0, 0)), nrm))
     add_bm(boot_badges, b)
-    b = text_mesh("R", 0.034, 0.0022, shear=0.25, align="LEFT")
+    k_r = 1.15 if BODY_MESH else 1.0
+    b = text_mesh("R", 0.034 * k_r, 0.0022, shear=0.25, align="LEFT")
     b.transform(frame_matrix(hit + nrm * 0.001 + Vector((-0.006, 0, 0.004)), Vector((-1, 0, 0)), nrm))
     add_bm(red_r, b)
     make("Badge_Boot", boot_badges, ["Badge"], "Trunk", smooth=None)
@@ -3230,14 +3591,16 @@ def roblox_look(mat_name):
         "BlackGloss": ("SmoothPlastic", None, 0.0, 0.08),
         "BlackMatte": ("Plastic", None, 0.0, 0.0),
         "Rubber": ("SmoothPlastic", (28, 28, 28), 0.0, 0.0),
-        "Glass": ("Glass", (36, 42, 46), 0.45, 0.15),
+        "Glass": ("Glass", (70, 82, 84), 0.55, 0.15),
         "Chrome": ("SmoothPlastic", (200, 200, 205), 0.0, 0.45),
         "Reflector": ("SmoothPlastic", (200, 200, 205), 0.0, 0.5),
         "LensClear": ("Glass", (235, 240, 245), 0.6, 0.1),
-        "LensRed": ("Glass", (150, 0, 8), 0.3, 0.05),
+        "LensRed": ("Glass", (110, 8, 12), 0.35, 0.05),
         "BulbRed": ("SmoothPlastic", (200, 10, 10), 0.0, 0.1),
         "LensAmber": ("Glass", (255, 140, 0), 0.2, 0.05),
-        "LensSmoke": ("Glass", (60, 20, 20), 0.2, 0.05),
+        "LensSmoke": ("Glass", (40, 40, 44), 0.4, 0.05),
+        "TailAmber": ("Glass", (150, 70, 10), 0.35, 0.05),
+        "AmberReflector": ("SmoothPlastic", (255, 150, 20), 0.0, 0.1),
         "Housing": ("SmoothPlastic", (18, 18, 20), 0.0, 0.0),
         "Interior": ("Fabric", (34, 34, 37), 0.0, 0.0),
         "InteriorTrim": ("SmoothPlastic", (45, 45, 48), 0.0, 0.0),
@@ -4053,11 +4416,9 @@ def setup_render_scene(res=(1280, 720), samples=48):
         pass
     sc.render.resolution_x, sc.render.resolution_y = res
     sc.render.film_transparent = False
-    try:
-        sc.view_settings.view_transform = "AgX"
-        sc.view_settings.look = "AgX - Punchy"
-    except Exception:                       # pre-4.0: no AgX
-        sc.view_settings.view_transform = "Filmic"
+    sc.view_settings.view_transform = "Standard"   # AgX/Filmic wash the yellow out
+    sc.view_settings.look = "None"
+    sc.view_settings.exposure = -0.6
     world = bpy.data.worlds.new("Studio") if sc.world is None else sc.world
     sc.world = world
     world.use_nodes = True
@@ -4172,7 +4533,7 @@ def build():
     parts.update(panels)
     for ob in parts.values():
         ob["assembly"] = ob.get("assembly", "Body")
-        shade_smooth(ob, 35)
+        shade_smooth(ob, 55 if BODY_MESH else 35)      # mesh bodies: no stray creases
     for name in panels:
         panels[name]["assembly"] = name
     parts["Glass_Door_L"]["assembly"] = "Door_L"
