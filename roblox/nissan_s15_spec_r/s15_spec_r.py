@@ -250,6 +250,40 @@ def material(name, color, metallic=0.0, rough=0.5, alpha=1.0, emit=None,
     return m
 
 
+def grazing_falloff(mat, start=0.82, end=0.92, coat=0.1, spec=0.0):
+    """Fade the clear coat and the base specular out at grazing view angles.
+    Where a crown or a silhouette is seen edge-on (roof and bonnet in the
+    straight front, rear and side views) the reflected ray runs on almost
+    along the view ray and mirrors the studio card opposite the camera at
+    full grazing Fresnel: a cream line on the yellow paint. Layer Weight's
+    Facing (1 - |N.I|) drives Coat Weight and Specular IOR Level: unchanged
+    up to `start` (~80 deg off the normal), easing to `coat` / `spec` at
+    `end` (~85 deg), so those crowns show the paint's own yellow. Highlights
+    at ordinary angles and the glossy shading of the bonnet in the 3/4 views
+    (mostly below 0.82) keep their full strength."""
+    nt = mat.node_tree
+    p = nt.nodes["Principled BSDF"]
+    todo = []
+    for keys, low in ((("Coat Weight", "Clearcoat"), coat),
+                      (("Specular IOR Level", "Specular"), spec)):
+        key = next((k for k in keys if k in p.inputs), None)
+        if key is not None and low is not None and not p.inputs[key].is_linked:
+            todo.append((key, low))
+    if not todo:                                      # already set up
+        return
+    lw = nt.nodes.new("ShaderNodeLayerWeight")
+    lw.inputs["Blend"].default_value = 0.5            # Facing = 1 - |N.I|
+    for key, low in todo:
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.interpolation_type = "SMOOTHERSTEP"
+        mr.inputs["From Min"].default_value = start
+        mr.inputs["From Max"].default_value = end
+        mr.inputs["To Min"].default_value = p.inputs[key].default_value
+        mr.inputs["To Max"].default_value = low
+        nt.links.new(lw.outputs["Facing"], mr.inputs["Value"])
+        nt.links.new(mr.outputs["Result"], p.inputs[key])
+
+
 def setup_materials():
     paint = material("Paint", (0.20, 0.20, 0.21) if CLAY else PAINT_PRESETS[PAINT],
                      metallic=0.0, rough=0.12, coat=0.8)
@@ -259,6 +293,7 @@ def setup_materials():
         if key in paint.node_tree.nodes["Principled BSDF"].inputs:
             paint.node_tree.nodes["Principled BSDF"].inputs[key].default_value = 0.1
             break
+    grazing_falloff(paint)
     material("BlackGloss", (0.01, 0.01, 0.012), rough=0.18, coat=0.5)
     material("BlackMatte", (0.018, 0.018, 0.02), rough=0.75)
     material("Rubber", (0.012, 0.012, 0.012), rough=0.85)
@@ -2489,7 +2524,9 @@ def cut_lamps_and_openings(body, ref):
                             lambda c, sx=sx: sx * c.x > 0) for sx in (1, -1)],
                     lambda c, n: -0.83 < c.y < -0.66 and c.z > 0.78 and
                     abs(abs(c.x) - cowl_x(c.y)) < 0.05)
-        paint_faces(body, lambda c, n: -0.80 < c.y < -0.69 and c.z > 0.84 and
+        # (down to 0.81: the scuttle dips to 0.82 just inboard of that line,
+        # ahead of the A-pillar feet, and a higher floor left yellow teeth)
+        paint_faces(body, lambda c, n: -0.80 < c.y < -0.69 and c.z > 0.81 and
                     abs(c.x) < cowl_x(c.y) and n.z > 0.3, "BlackMatte")
     # side repeaters on the front fenders
     cut = volume("cut_marker", side=side_marker(), xr=(0.775, 1.3), mat="Housing")
@@ -2863,13 +2900,23 @@ def build_exterior_details(ref):
             secs = [s_[::-1] for s_ in secs]
         loft_tube(mbm, None, secs, mat=0)
         bmesh.ops.recalc_face_normals(mbm, faces=mbm.faces)
-        add_box(mglass, Vector((0.870 * sx, -0.430 + 0.0345, 0.925)), (0.122, 0.003, 0.082),
+        # the glass sits in a pocket in the housing's back, its face 3+ mm under
+        # the lip and its edges buried in the pocket walls (a flat plate on the
+        # curved back stood proud at its rim, which caught the metal light twins)
+        add_box(mglass, Vector((0.870 * sx, -0.4115, 0.925)), (0.118, 0.003, 0.076),
                 mat=0, bevel=0.0)
         # stalk + sail base (black triangle ahead of the door glass)
         add_box(mbase, Vector((0.780 * sx, -0.448, 0.900)), (0.044, 0.060, 0.030), bevel=0.006)
         add_box(mbase, Vector((0.766 * sx, -0.560, 0.888)), (0.016, 0.110, 0.048), bevel=0.004)
         d = "Door_" + side
-        make("Mirror_" + side, mbm, ["Paint"], d)
+        mob = make("Mirror_" + side, mbm, ["Paint"], d)
+        pk = volume("mpk_" + side, front=fillet([(0.813 * sx, 0.889), (0.927 * sx, 0.889),
+                                                 (0.927 * sx, 0.961), (0.813 * sx, 0.961)],
+                                                {0: 0.016, 1: 0.016, 2: 0.016, 3: 0.016}),
+                    yr=(-0.4115, -0.30), mat="BlackMatte")      # matte black surround
+        boolean(mob, pk)
+        delete_object(pk)
+        shade_smooth(mob, 40)
         make("MirrorGlass_" + side, mglass, ["Mirror"], d)
         make("MirrorBase_" + side, mbase, ["BlackGloss"], d)
 
@@ -3212,6 +3259,9 @@ def build_interior(body):
                    (-0.380, 0.520), (-0.500, 0.470)], {2: 0.03, 4: 0.04, 5: 0.03, 6: 0.04,
                                                        7: 0.05, 8: 0.05})
     prism_from_poly(prof, "x", -0.715, 0.715, bm=dash)
+    # the profile runs clockwise: turn the prism right side out (an inside-out
+    # dash broke the exact clip below and faced away in the export)
+    bmesh.ops.reverse_faces(dash, faces=dash.faces[:])
     # binnacle hood over the gauges (driver side)
     xg = 0.37 * DRV
     rbox(dash, (xg, -0.355, 0.858), (0.40, 0.17, 0.058), bevel=0.025)
@@ -3383,13 +3433,18 @@ def build_interior(body):
               "SteeringColumn", "SteeringWheel", "Pedals"):
         ob = parts[n]
         ob.data.transform(Matrix.Translation((0.0, DASH_SHIFT, 0.0)))
-    if BODY_MESH:     # the dash top's front corners stay inboard of the A-pillar
-        def dx(y):    # feet (the reconstruction's pillars are not shaved)
-            return screen_edge_x(y) - 0.045
-        clip = volume("cut_dash", plan=[(-0.75, -0.25), (-0.75, -0.62), (-dx(-0.66), -0.66),
-                                        (-dx(-0.86), -0.86), (dx(-0.86), -0.86),
-                                        (dx(-0.66), -0.66), (0.75, -0.62), (0.75, -0.25)],
-                      zr=(0.0, 2.0), mat="Interior")
+    if BODY_MESH:     # the reconstruction's scuttle and A-pillar feet sit lower than
+        # the dash top (0.86): the dash front dips under them, over its full
+        # width, from just behind the windscreen base (side view, y z). Measured
+        # on the body: the scuttle's lowest point is 0.85 at the screen base
+        # and 0.82 a few cm ahead, the door-seam floor at the pillar foot 0.848
+        # (y -0.69), the screen's bottom corners 0.859-0.865 (y -0.69..-0.68).
+        # A plan clip of the dash ends instead opened holes to the floor through
+        # the screen's bottom corners and the door aperture.
+        clip = volume("cut_dash", side=[(0.5, -0.5), (0.5, 2.0), (-0.62, 2.0), (-0.655, 0.868),
+                                        (-0.70, 0.822), (-0.73, 0.792), (-1.2, 0.792),
+                                        (-1.2, -0.5)],
+                      xr=(-1.0, 1.0), mat="Interior")
         boolean(parts["Dashboard"], clip, "INTERSECT")
         delete_object(clip)
     # ---- boot: spare wheel ----------------------------------------------
