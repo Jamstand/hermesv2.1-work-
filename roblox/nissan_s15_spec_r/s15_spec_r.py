@@ -2380,6 +2380,28 @@ def paint_faces(ob, test, mat_name):
     return count
 
 
+def split_faces(ob, chords, near):
+    """Cut ob's faces along a chain of planes, so that a paint_faces
+    boundary on them comes out as a clean line instead of the zigzag of
+    the mesh's triangles. chords: [(plane_co, plane_no, select(c))], each
+    plane cutting only the faces whose centre c passes select(c) and
+    near(c, n) (re-evaluated after the previous cuts)."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    for co, no, select in chords:
+        faces = [f for f in bm.faces if select(f.calc_center_median()) and
+                 near(f.calc_center_median(), f.normal)]
+        if not faces:
+            continue
+        edges = list({e for f in faces for e in f.edges})
+        verts = list({v for f in faces for v in f.verts})
+        bmesh.ops.bisect_plane(bm, geom=faces + edges + verts, dist=2e-4,
+                               plane_co=Vector(co), plane_no=Vector(no).normalized())
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+
+
 def split_by_plane(ob, co, no, name_neg, name_pos):
     """Split a mesh object by a plane into two objects (neg / pos side)."""
     res = []
@@ -2454,8 +2476,21 @@ def cut_lamps_and_openings(body, ref):
                  [(-x, z) for x, z in offset_poly(intake_outer(), -0.003)]]
         paint_faces(body, lambda c, n: -2.25 < c.y < -1.85 and
                     any(_in_poly(c.x, c.z, q) for q in polys), "BlackMatte")
+        # scuttle: between the bonnet's rear edge and the screen, and only
+        # inboard of the bonnet's side line carried on back to the screen
+        # (parallel to the screen's edge). Outboard of it are the A-pillar
+        # feet and the wing tops behind the bonnet's rear corners, which
+        # stay body colour; the faces are split along that line first so
+        # the black ends in a clean edge.
+        def cowl_x(y):
+            return screen_edge_x(y) - 0.043        # bonnet side line at y -0.80
+        k = (screen_edge_x(-0.80) - screen_edge_x(-0.70)) / 0.10    # its slope, -dx/dy
+        split_faces(body, [((sx * cowl_x(-0.75), -0.75, 0.85), (sx, k, 0.0),
+                            lambda c, sx=sx: sx * c.x > 0) for sx in (1, -1)],
+                    lambda c, n: -0.83 < c.y < -0.66 and c.z > 0.78 and
+                    abs(abs(c.x) - cowl_x(c.y)) < 0.05)
         paint_faces(body, lambda c, n: -0.80 < c.y < -0.69 and c.z > 0.84 and
-                    abs(c.x) < 0.72 and n.z > 0.3, "BlackMatte")
+                    abs(c.x) < cowl_x(c.y) and n.z > 0.3, "BlackMatte")
     # side repeaters on the front fenders
     cut = volume("cut_marker", side=side_marker(), xr=(0.775, 1.3), mat="Housing")
     out["Light_Indicator_SL"] = surface_patch(ref, cut, "Light_Indicator_SL", inset=0.001,
@@ -3075,15 +3110,32 @@ def detail_doors(panels, ref):
                      xr=(0.818, 1.3) if sx > 0 else (-1.3, -0.818), mat="BlackMatte")
         boolean(door, cut)
         delete_object(cut)
-        # window frame (sash) in gloss black
+        # window frame (sash) and the sail ahead of the glass in gloss black,
+        # above the belt line. The skin is split along the belt first (10 cm
+        # chords of Z_BELT): on the unshaved shoulder under the sail, black
+        # by face centre followed the mesh's triangles and showed as a row
+        # of yellow teeth at the front corner of the window.
         me = door.data
         if "BlackGloss" not in me.materials:
             me.materials.append(MATS["BlackGloss"])
         bi = list(me.materials).index(MATS["BlackGloss"])
         pi = list(me.materials).index(MATS["Paint"]) if MATS["Paint"].name in me.materials else 0
+        by = [-0.80 + 0.10 * k for k in range(16)]
+        bz = [Z_BELT(y) + 0.003 for y in by]
+
+        def belt(y):
+            k = min(max(int((y - by[0]) / 0.10), 0), len(by) - 2)
+            t = (y - by[k]) / (by[k + 1] - by[k])
+            return bz[k] + (bz[k + 1] - bz[k]) * t
+        chords = [((0.0, by[k], bz[k]), (0.0, bz[k] - bz[k + 1], by[k + 1] - by[k]),
+                   lambda c, k=k: by[k] <= c.y < by[k + 1] or
+                   (k == 0 and c.y < by[0]) or (k == len(by) - 2 and c.y >= by[-1]))
+                  for k in range(len(by) - 1)]
+        split_faces(door, chords, lambda c, n: abs(c.z - belt(c.y)) < 0.04)
+        me = door.data
         for poly in me.polygons:
             c = poly.center
-            if poly.material_index == pi and c.z > Z_BELT(c.y) + 0.003:
+            if poly.material_index == pi and c.z > belt(c.y):
                 poly.material_index = bi
 
 
@@ -3331,6 +3383,15 @@ def build_interior(body):
               "SteeringColumn", "SteeringWheel", "Pedals"):
         ob = parts[n]
         ob.data.transform(Matrix.Translation((0.0, DASH_SHIFT, 0.0)))
+    if BODY_MESH:     # the dash top's front corners stay inboard of the A-pillar
+        def dx(y):    # feet (the reconstruction's pillars are not shaved)
+            return screen_edge_x(y) - 0.045
+        clip = volume("cut_dash", plan=[(-0.75, -0.25), (-0.75, -0.62), (-dx(-0.66), -0.66),
+                                        (-dx(-0.86), -0.86), (dx(-0.86), -0.86),
+                                        (dx(-0.66), -0.66), (0.75, -0.62), (0.75, -0.25)],
+                      zr=(0.0, 2.0), mat="Interior")
+        boolean(parts["Dashboard"], clip, "INTERSECT")
+        delete_object(clip)
     # ---- boot: spare wheel ----------------------------------------------
     sp = bmesh.new()
     c = Vector((0.0, 1.78, 0.39))
@@ -4423,11 +4484,13 @@ def write_part_list(final, outdir):
 # Preview rendering
 # --------------------------------------------------------------------------
 
-def _reflection_card(name, size, loc, aim, strength, edge):
+def _reflection_card(name, size, loc, aim, strength, edge, see_through=False):
     """Emissive panel seen only in reflections (glossy rays): white in the
     middle, fading to black over `edge` of its half-width (smootherstep), so
     clear coat and glass mirror a soft studio panel instead of a hard,
-    clipped light rectangle. Named Studio_* so the export step removes it."""
+    clipped light rectangle. Named Studio_* so the export step removes it.
+    see_through: rays pass on behind it (it only adds its light), so it can
+    hang in front of another card that other receivers see."""
     sc = bpy.context.scene
     me = bpy.data.meshes.new(name)
     sx, sy = size[0] / 2, size[1] / 2
@@ -4474,17 +4537,55 @@ def _reflection_card(name, size, loc, aim, strength, edge):
     amp.inputs[1].default_value = strength
     nt.links.new(mul.outputs[0], amp.inputs[0])
     nt.links.new(amp.outputs[0], em.inputs["Strength"])
-    nt.links.new(em.outputs[0], out.inputs["Surface"])
+    shader = em.outputs[0]
+    if see_through:
+        add = nt.nodes.new("ShaderNodeAddShader")
+        nt.links.new(shader, add.inputs[0])
+        nt.links.new(nt.nodes.new("ShaderNodeBsdfTransparent").outputs[0], add.inputs[1])
+        shader = add.outputs[0]
+    nt.links.new(shader, out.inputs["Surface"])
     me.materials.append(m)
     return ob
 
 
-def highlight_shoulder(sc, knee=0.80, white=0.98):
+def _bare_metal(ob):
+    """Chrome, alloy, badges, lamp reflectors...: every material is metallic,
+    apart from rough ones (>= 0.7) that show no highlight anyway (the black
+    hub face of a brake disc). Painted or glazed parts are never bare metal."""
+    if ob.type != "MESH":
+        return False
+    vals = []
+    for m in ob.data.materials:
+        p = m.node_tree.nodes.get("Principled BSDF") if m and m.use_nodes else None
+        if p is None:
+            return False
+        vals.append((p.inputs["Metallic"].default_value, p.inputs["Roughness"].default_value))
+    return (any(mt >= 0.8 for mt, r in vals)
+            and all(mt >= 0.8 or r >= 0.7 for mt, r in vals))
+
+
+def _link_set(name, obs, exclude=False):
+    """A light-linking receiver collection (not linked to the scene; named
+    Studio_* so the export step removes it). exclude: every object except
+    these receives the light."""
+    col = bpy.data.collections.get(name) or bpy.data.collections.new(name)
+    for o in list(col.objects):
+        col.objects.unlink(o)
+    for o in obs:
+        col.objects.link(o)
+    for co in col.collection_objects:
+        co.light_linking.link_state = "EXCLUDE" if exclude else "INCLUDE"
+    return col
+
+
+def highlight_shoulder(sc, knee=0.75, white=0.98):
     """Standard has no highlight roll-off, so the brightest paint goes flat
     (one channel pinned at 1.0). This compositor shoulder scales each pixel's
     RGB so that max(R, G, B) stays linear up to `knee` and then eases towards
     `white` (display-linear, after exposure) without reaching it. Hue and
-    saturation are kept, so the yellow stays vivid."""
+    saturation are kept, so the yellow stays vivid. The roll-off is
+    rational, over * span / (over + span): its long tail lets a close-up
+    hood keep its shading instead of piling up just under `white`."""
     gain = 2.0 ** sc.view_settings.exposure
     k, span = knee / gain, (white - knee) / gain
     sc.use_nodes = True
@@ -4505,7 +4606,7 @@ def highlight_shoulder(sc, knee=0.80, white=0.98):
         return n.outputs[0]
     peak = op("MAXIMUM", op("MAXIMUM", sep.outputs[0], sep.outputs[1]), sep.outputs[2])
     over = op("MAXIMUM", op("SUBTRACT", peak, k), 0.0)
-    roll = op("MULTIPLY", op("SUBTRACT", 1.0, op("EXPONENT", op("MULTIPLY", over, -1.0 / span))), span)
+    roll = op("DIVIDE", op("MULTIPLY", over, span), op("ADD", over, span))
     ratio = op("DIVIDE", op("ADD", op("MINIMUM", peak, k), roll), op("MAXIMUM", peak, 1e-6))
     mul = cn.nodes.new("CompositorNodeMixRGB")
     mul.blend_type = "MULTIPLY"
@@ -4514,12 +4615,23 @@ def highlight_shoulder(sc, knee=0.80, white=0.98):
     cn.links.new(mul.outputs[0], cn.nodes.new("CompositorNodeComposite").inputs["Image"])
 
 
+# glossy-only twins of the studio lights that only bare metal sees:
+# (x the light's energy, x its size). Stronger side strips for the rims, a
+# broad front panel so the headlamp bowls and rings catch a reflection.
+METAL_TWINS = {"Studio_Top": (1.0, 1.0), "Studio_SideL": (1.5, 1.0), "Studio_SideR": (1.5, 1.0),
+               "Studio_Front": (6.0, 2.4), "Studio_Rear": (1.0, 1.0)}
+GLASS_CARD = 1.0       # strength of the top card as the windows see it
+
+
 def setup_render_scene(res=(1280, 720), samples=48):
     """Photo studio: grey seamless floor, a big overhead softbox and long
     side strips. The area lights only light the car (they are hidden from
     glossy rays); what the clear coat and the glass mirror are dim
     soft-edged reflection cards, so under the Standard view transform the
-    highlights stay soft instead of clipping to ragged white streaks."""
+    highlights stay soft instead of clipping to ragged white streaks. Bare
+    metal alone (light linking) also mirrors glossy-only twins of the lights,
+    so chrome and alloy still sparkle. Works on a freshly built scene and
+    on a saved one; calling it again is harmless."""
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
@@ -4553,13 +4665,14 @@ def setup_render_scene(res=(1280, 720), samples=48):
         gm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.11, 0.11, 0.115, 1)
         gm.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.55
         g.data.materials.append(gm)
-    # diffuse-only key/fill lights: less top, more side than before so the
-    # flanks reach the reference brightness without the hood clipping
-    boxes = (("Studio_Top", (3.2, 7.0), (0, 0, 5.2), (0, 0, 0), 560),
-             ("Studio_SideL", (7.5, 1.2), (5.0, 0, 2.0), (0, 0, 0.6), 350),
-             ("Studio_SideR", (7.5, 1.2), (-5.0, 0, 2.0), (0, 0, 0.6), 350),
-             ("Studio_Front", (3.0, 1.5), (0, -7.5, 2.5), (0, 0, 0.5), 110),
-             ("Studio_Rear", (3.0, 1.5), (0, 7.5, 2.5), (0, 0, 0.5), 140))
+    # diffuse-only key/fill lights. The top is kept moderate so a close-up
+    # hood stays under the shoulder (it took ~2/3 of the hood's light); the
+    # sides, front and rear lift the flanks and the ends to the reference
+    boxes = (("Studio_Top", (3.2, 7.0), (0, 0, 5.2), (0, 0, 0), 450),
+             ("Studio_SideL", (7.5, 1.2), (5.0, 0, 2.0), (0, 0, 0.6), 400),
+             ("Studio_SideR", (7.5, 1.2), (-5.0, 0, 2.0), (0, 0, 0.6), 400),
+             ("Studio_Front", (3.0, 1.5), (0, -7.5, 2.5), (0, 0, 0.5), 175),
+             ("Studio_Rear", (3.0, 1.5), (0, 7.5, 2.5), (0, 0, 0.5), 260))
     for name, size, loc, aim, energy in boxes:
         lo = bpy.data.objects.get(name)
         if lo is None:
@@ -4573,15 +4686,52 @@ def setup_render_scene(res=(1280, 720), samples=48):
             lo.rotation_euler = (Vector(aim) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
         lo.visible_glossy = False       # no hard mirrored light boxes in paint/glass
     # what the paint and glass reflect instead: radiance 1.5-2.5 stays below
-    # white even at grazing Fresnel (box radiance was ~8-10)
+    # white even at grazing Fresnel (box radiance was ~8-10). The side strips
+    # are dim and wide-edged: in a side view the far one grazes along the
+    # hood crown and the roofline and laid a cream band there.
     cards = (("Studio_CardTop", (4.5, 9.0), (0, 0, 5.15), (0, 0, 0), 2.5, 0.6),
-             ("Studio_CardSideL", (9.0, 2.0), (5.05, 0, 2.0), (0, 0, 0.6), 2.0, 0.5),
-             ("Studio_CardSideR", (9.0, 2.0), (-5.05, 0, 2.0), (0, 0, 0.6), 2.0, 0.5),
+             ("Studio_CardSideL", (9.0, 2.0), (5.05, 0, 2.0), (0, 0, 0.6), 1.0, 0.8),
+             ("Studio_CardSideR", (9.0, 2.0), (-5.05, 0, 2.0), (0, 0, 0.6), 1.0, 0.8),
              ("Studio_CardFront", (4.0, 2.0), (0, -7.55, 2.5), (0, 0, 0.5), 2.0, 0.5),
              ("Studio_CardRear", (4.0, 2.0), (0, 7.55, 2.5), (0, 0, 0.5), 1.5, 0.5))
     for name, size, loc, aim, strength, edge in cards:
         if name not in bpy.data.objects:
             _reflection_card(name, size, loc, aim, strength, edge)
+    # bare metal (rims, chrome, badges, lamp reflectors, exhaust) would look
+    # dull grey with only the dim cards to mirror: it gets glossy-only twins
+    # of the lights through light linking, which paint and glass never see
+    metal = _link_set("Studio_MetalReceivers", [o for o in sc.objects if _bare_metal(o)])
+    for name, size, loc, aim, energy in boxes:
+        lo = bpy.data.objects[name]
+        go = bpy.data.objects.get(name + "Gloss")
+        if go is None:
+            go = bpy.data.objects.new(name + "Gloss", lo.data.copy())
+            sc.collection.objects.link(go)
+        # 15 cm towards the car: in front of the cards (the top card hangs
+        # under the top light), so metal's own rays reach the twin
+        go.location = Vector(loc) + (Vector(aim) - Vector(loc)).normalized() * 0.15
+        go.rotation_euler = lo.rotation_euler
+        k_energy, k_size = METAL_TWINS[name]
+        go.data.energy = energy * k_energy
+        go.data.size, go.data.size_y = size[0] * k_size, size[1] * k_size
+        for attr in ("visible_camera", "visible_diffuse", "visible_transmission",
+                     "visible_volume_scatter"):
+            setattr(go, attr, False)
+        go.visible_glossy = True
+        go.light_linking.receiver_collection = metal
+    # the windows mirror their own, dimmer copy of the top card (at full
+    # strength it laid a flat grey veil over the cabin). It hangs just below
+    # the top card and is see-through, so the paint still sees the top card.
+    glass = [o for o in sc.objects if o.type == "MESH"
+             and any(m and m.name.split(".")[0] == "Glass" for m in o.data.materials)]
+    top = bpy.data.objects["Studio_CardTop"]
+    if glass:
+        top.light_linking.receiver_collection = _link_set("Studio_NoGlass", glass, exclude=True)
+        if "Studio_CardGlass" not in bpy.data.objects:
+            _reflection_card("Studio_CardGlass", (4.5, 9.0), (0, 0, 5.12), (0, 0, 0),
+                             GLASS_CARD, 1.0, see_through=True)
+        bpy.data.objects["Studio_CardGlass"].light_linking.receiver_collection = \
+            _link_set("Studio_GlassOnly", glass)
 
 
 def render_view(path, loc, target=(0, 0, 0.55), lens=50, ortho=None):
@@ -4732,6 +4882,8 @@ def main():
         for o in [o for o in bpy.data.objects
                   if o.name in ("Ground", "PreviewCam") or o.name.startswith("Studio_")]:
             bpy.data.objects.remove(o, do_unlink=True)
+        for c in [c for c in bpy.data.collections if c.name.startswith("Studio_")]:
+            bpy.data.collections.remove(c)        # light-linking sets
         os.makedirs(opts["out"], exist_ok=True)
         final = finalize_parts(parts)
         rows, total = write_part_list(final, opts["out"])
