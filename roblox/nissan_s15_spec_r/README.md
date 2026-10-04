@@ -24,7 +24,7 @@ The outer body shape comes from an AI 3D reconstruction of a stock car (Tripo, r
 * **Paint**: a vivid Lightning Yellow solid colour under a slightly satin clear coat. The previews use Blender's *Standard* view transform, because *AgX* washes yellow out towards cream. *Standard* has no highlight roll-off, though, so the studio is set up to keep reflections below white. The studio lights only light the car and never appear in reflections. What the paint and glass reflect are dim panels that fade out at their edges. A small compositor curve eases the brightest paint towards white without clipping it. Before this, the overhead light mirrored in the clear coat and the windscreen as ragged pure-white streaks.
 * **Underbody**: suspension arms, coilovers, half shafts, the R200 diff, driveshaft, gearbox, fuel tank and the full exhaust run.
 
-**Size:** 109 MeshParts and about 192k triangles (191,738). The largest single part has 11,432, under Roblox's 20k-per-mesh cap. The full list is in [`export/parts.txt`](export/parts.txt). The body shell is 55k of those triangles. For a lighter car, lower `BODY_TRIS` near the top of the script and re-run `--prepare-body` (see [Changing it](#changing-it)).
+**Size:** 109 MeshParts and about 193k triangles (192,590). The largest single part has 11,548, under Roblox's 20k-per-mesh cap. The full list is in [`export/parts.txt`](export/parts.txt). The body shell is 55k of those triangles. For a lighter car, lower `BODY_TRIS` near the top of the script and re-run `--prepare-body` (see [Changing it](#changing-it)).
 
 ## How the body was made
 
