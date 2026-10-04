@@ -65,7 +65,7 @@ After that, the body goes through the same cuts as before: windows, lamps, intak
 
 ### 4. Checking it against the references
 
-The comparison cameras were fitted to the reference photos, not placed by eye. Their position, angle, focal length and lens shift were optimised until the model's silhouette matched the car's outline in each photo (overlap 77% front, 79% rear). The model was then rendered from those cameras ([`previews/compare_reference.jpg`](previews/compare_reference.jpg)). Its silhouette was also rendered at the side photo's pixel scale and drawn over it ([`previews/side_overlay.jpg`](previews/side_overlay.jpg), model in red).
+The comparison cameras were fitted to the reference photos, not placed by eye. Their position, angle, focal length and lens shift were optimised until the model's silhouette matched the car's outline in each photo. The overlap is 78% front and 79% rear; most of the rest is the windows, which the photo outline leaves out. The model was then rendered from those cameras ([`previews/compare_reference.jpg`](previews/compare_reference.jpg)). Its silhouette was also rendered at the side photo's pixel scale and drawn over it ([`previews/side_overlay.jpg`](previews/side_overlay.jpg), model in red).
 
 ![references vs model](previews/compare_reference.jpg)
 
