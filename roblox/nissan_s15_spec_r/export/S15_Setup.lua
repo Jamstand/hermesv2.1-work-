@@ -88,7 +88,10 @@ local PARTS = {
 	Body_Leather = { "Body", "Leather" },
 	Body_LensClear = { "Body", "LensClear" },
 	Body_Mirror = { "Body", "Mirror" },
-	Body_Paint = { "Body", "Paint" },
+	Body_Paint_1 = { "Body", "Paint" },
+	Body_Paint_2 = { "Body", "Paint" },
+	Body_Paint_3 = { "Body", "Paint" },
+	Body_Paint_4 = { "Body", "Paint" },
 	Body_PlateText = { "Body", "PlateText" },
 	Body_PlateWhite = { "Body", "PlateWhite" },
 	Body_Radiator = { "Body", "Radiator" },
@@ -122,6 +125,7 @@ local PARTS = {
 	Door_R_Mirror = { "Door_R", "Mirror" },
 	Door_R_Paint = { "Door_R", "Paint" },
 	Hood_Badge = { "Hood", "Badge" },
+	Hood_Housing = { "Hood", "Housing" },
 	Hood_Interior = { "Hood", "Interior" },
 	Hood_Paint = { "Hood", "Paint" },
 	Light_Brake_C = { "Trunk", "LensRed" },
@@ -206,7 +210,7 @@ local STEER = {
 }
 local WHEEL_SIZE = { 0.7679, 2.233 }
 local WHEELBASE = 9.0179
-local ANCHOR = "Body_Paint"
+local ANCHOR = "Body_Paint_1"
 
 -- collect the imported MeshParts by name
 local meshes = {}

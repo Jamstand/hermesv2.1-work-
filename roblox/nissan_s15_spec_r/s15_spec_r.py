@@ -10,11 +10,17 @@ Run it either way:
     blender -b -P s15_spec_r.py -- --out ./export            # choose the folder
     blender -b -P s15_spec_r.py -- --no-export --render --open --samples 64
                                                              # preview renders
+    blender -b -P s15_spec_r.py -- --body loft               # lofted body
+    blender -b -P s15_spec_r.py -- --prepare-body raw.glb body/s15_body.glb
+                                         # turn a raw image-to-3D model into
+                                         # the body file the build loads
 or open Blender > Scripting tab > open this file > Run Script (builds into a
 new scene called S15_SpecR and exports next to the script).
 
 Developed and tested with Blender 4.2 (bpy 4.2). Written to tolerate 3.6+,
-but only 4.2 has actually been run.
+but only 4.2 has actually been run. The default body (body/s15_body.glb, an
+image-to-3D reconstruction, see README) needs the OpenVDB grid nodes that
+Blender 4.2 has; without them the script falls back to the lofted body.
 
 Output (default ./export next to this file):
     S15_SpecR.blend        editable scene, real scale (metres)
@@ -55,12 +61,13 @@ PAINT_PRESETS = {
 PAINT = "lightning_yellow"
 CLAY = False                   # preview option: neutral grey paint
 TRI_LIMIT = 20000              # Roblox MeshPart triangle cap
-# Optional outer body shape from a mesh file (.glb/.gltf/.obj/.fbx), e.g. an
-# image-to-3D model; relative paths are next to this script. None = the
-# lofted body. See body_from_mesh().
-BODY_MESH = None
+# Outer body shape from a mesh file (.glb/.gltf/.obj/.fbx); relative paths
+# are next to this script. The default is the prepared image-to-3D body
+# (see README); if it is missing, or with None / --body loft, the body is
+# lofted from the design curves below. See body_from_mesh().
+BODY_MESH = "body/s15_body.glb"
 BODY_VOXEL = 0.006             # remesh resolution for BODY_MESH (m)
-BODY_TRIS = 90000              # BODY_MESH shell triangles before the cuts
+BODY_TRIS = 55000              # BODY_MESH shell triangles before the cuts
 
 # Real dimensions (metres)
 LENGTH, WIDTH, HEIGHT = 4.445, 1.695, 1.285
@@ -1238,10 +1245,44 @@ def join_into(target, others):
     return target
 
 
+def fit_smooth(bm, degree=2, tol=0.004):
+    """Project a gently curved patch (a glass pane) onto a least-squares
+    polynomial height field over its mean plane, ignoring lumps (at most
+    the worst third of the points are left out of the fit)."""
+    import numpy as np
+    P = np.array([v.co[:] for v in bm.verts])
+    if len(P) < 12:
+        return
+    c = P.mean(0)
+    _, _, vt = np.linalg.svd(P - c, full_matrices=False)
+    U, W, N = vt[0], vt[1], vt[2]
+    u, w, h = (P - c) @ U, (P - c) @ W, (P - c) @ N
+    su, sw = max(np.abs(u).max(), 1e-6), max(np.abs(w).max(), 1e-6)
+    A = np.stack([(u / su) ** i * (w / sw) ** j for i in range(degree + 1)
+                  for j in range(degree + 1 - i)], 1)
+    keep = np.ones(len(P), bool)
+    for _ in range(4):
+        coef, *_ = np.linalg.lstsq(A[keep], h[keep], rcond=None)
+        res = np.abs(h - A @ coef)
+        keep = res <= max(tol, np.percentile(res, 67))
+    P2 = c + np.outer(u, U) + np.outer(w, W) + np.outer(A @ coef, N)
+    for v, p in zip(bm.verts, P2):
+        v.co = Vector(p)
+    # lumps that overhung fold flat when projected: drop those faces (others
+    # cover the same spot), they would wreck the solidify
+    bm.normal_update()
+    n = Vector(N[:]) if np.mean([f.normal.dot(Vector(N[:])) for f in bm.faces]) > 0 else -Vector(N[:])
+    bad = [f for f in bm.faces if f.calc_area() < 1e-9 or f.normal.dot(n) < 0.2]
+    bmesh.ops.delete(bm, geom=bad, context="FACES")
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context="VERTS")
+
+
 def surface_patch(source, cutter, name, inset=0.004, keep_mat=0, thickness=0.0,
-                  mats=None):
+                  mats=None, smooth=False):
     """The part of `source`'s surface inside `cutter` (e.g. a lens or a glass
-    pane), pulled in along the normals by `inset`, optionally given thickness."""
+    pane), pulled in along the normals by `inset`, optionally given thickness.
+    smooth: refit it as one smooth curved surface (glass on a mesh body)."""
     tmp = copy_object(source, name)
     tmp.modifiers.clear()
     boolean(tmp, cutter, "INTERSECT")
@@ -1249,6 +1290,14 @@ def surface_patch(source, cutter, name, inset=0.004, keep_mat=0, thickness=0.0,
     bm.from_mesh(tmp.data)
     drop = [f for f in bm.faces if f.material_index != keep_mat]
     bmesh.ops.delete(bm, geom=drop, context="FACES")
+    if smooth:
+        fit_smooth(bm)
+        # a smooth pane needs few triangles
+        bm.to_mesh(tmp.data)
+        bm.free()
+        decimate(tmp, min(1.0, 600 / max(1, len(tmp.data.polygons))))
+        bm = bmesh.new()
+        bm.from_mesh(tmp.data)
     bm.normal_update()
     for v in bm.verts:
         v.co -= v.normal * inset
@@ -1321,6 +1370,9 @@ def side_dlo_quarter():
 def plan_windshield():
     yb, yt = -0.700, -0.085
     side = sample(lambda y: (X_RAIL(y) - 0.032, y), yb, yt, 7)
+    if BODY_MESH:     # the reconstructed screen tapers more (measured on body/s15_body.glb)
+        yt = -0.110
+        side = sample(lambda y: (0.645 - 0.2875 * (y + 0.62), y), yb, yt, 7)
     pts = side + [(-x, y) for x, y in reversed(side)]
     radii = {0: 0.05, 6: 0.06, 7: 0.06, 13: 0.05}
     return fillet(pts, radii)
@@ -1410,9 +1462,12 @@ def intake_main():
 
 def intake_outer():
     """Outer bumper opening (honeycomb), front view (x, z), +X side."""
-    return fillet([(0.50, 0.266), (0.625, 0.268), (0.662, 0.300), (0.668, 0.355),
-                   (0.648, 0.392), (0.478, 0.386), (0.462, 0.330)],
-                  {0: 0.025, 1: 0.03, 2: 0.02, 3: 0.02, 4: 0.03, 5: 0.025, 6: 0.02})
+    pts = fillet([(0.50, 0.266), (0.625, 0.268), (0.662, 0.300), (0.668, 0.355),
+                  (0.648, 0.392), (0.478, 0.386), (0.462, 0.330)],
+                 {0: 0.025, 1: 0.03, 2: 0.02, 3: 0.02, 4: 0.03, 5: 0.025, 6: 0.02})
+    if BODY_MESH:                   # the reconstructed bumper's openings run a little larger
+        pts = [(x + 0.012 * smoothstep(0.50, 0.66, x), z) for x, z in offset_poly(pts, 0.008)]
+    return pts
 
 
 def side_marker():
@@ -1517,6 +1572,8 @@ def import_mesh_file(path, name):
     else:
         raise ValueError(f"unsupported body mesh: {path}")
     new = [o for o in bpy.data.objects if o not in before]
+    prepared = any(o.get("s15_body") or (o.type == "MESH" and o.data.get("s15_body"))
+                   for o in new)
     bm = bmesh.new()
     for o in new:
         if o.type == "MESH":
@@ -1531,7 +1588,10 @@ def import_mesh_file(path, name):
         bpy.data.meshes.remove(me)
     if not bm.faces:
         raise ValueError(f"no mesh found in {path}")
-    return new_object(name, bm, ["Paint"], smooth_angle=None)
+    ob = new_object(name, bm, ["Paint"], smooth_angle=None)
+    if prepared:
+        ob["s15_body"] = 1
+    return ob
 
 
 def fit_body_mesh(ob):
@@ -1600,44 +1660,16 @@ def fit_body_mesh(ob):
 
 
 def symmetrize_x(ob):
-    """Keep the +X (left) half and mirror it."""
+    """Keep the -X (right) half and mirror it: the stock exhaust exits on the
+    left, and this script adds its own."""
     bm = bmesh.new()
     bm.from_mesh(ob.data)
     bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
-                           plane_co=(0, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
+                           plane_co=(0, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
     bmesh.ops.mirror(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
                      merge_dist=1e-5, axis="X")
     bm.to_mesh(ob.data)
     bm.free()
-
-
-def voxel_remesh(ob, size):
-    mod = ob.modifiers.new("remesh", "REMESH")
-    mod.mode = "VOXEL"
-    mod.voxel_size = size
-    mod.adaptivity = 0.0
-    apply_modifiers(ob)
-
-
-def taubin(ob, iters=6, lam=0.5, mu=-0.53):
-    """Non-shrinking smoothing (irons out reconstruction noise)."""
-    import numpy as np
-    V = _verts(ob)
-    E = np.empty(len(ob.data.edges) * 2, dtype=np.int64)
-    ob.data.edges.foreach_get("vertices", E)
-    E = E.reshape(-1, 2)
-    deg = np.maximum(np.bincount(E.ravel(), minlength=len(V)), 1)[:, None]
-
-    def lap(P):
-        S = np.zeros_like(P)
-        np.add.at(S, E[:, 0], P[E[:, 1]])
-        np.add.at(S, E[:, 1], P[E[:, 0]])
-        return S / deg - P
-
-    for _ in range(iters):
-        V = V + lam * lap(V)
-        V = V + mu * lap(V)
-    _set_verts(ob, V)
 
 
 def _robust_fit(A, b, iters=5, tol=0.008):
@@ -1671,30 +1703,30 @@ def field_cutter(name, us, vs, H, to_xyz, far):
     return cutter_object(name, bm, "Paint")
 
 
-def strip_spoiler(ob):
-    """Cut everything a few mm above the boot lid (the spoiler is modelled
-    separately). The lid height is ray-cast from inside the body; under the
-    pedestals the rays exit through the wing, so each row is fitted with a
-    smooth crown curve that ignores those samples."""
+def strip_wipers(ob):
+    """Shave the moulded wipers off the scuttle and the base of the screen
+    (this script adds its own). The surface height is ray-cast from inside
+    on dense rows across the car; each row is fitted with a smooth crown
+    curve that ignores samples sitting on top of it."""
     import numpy as np
     bvh = bvh_of(ob)
-    xs = np.linspace(-0.82, 0.82, 42)
-    ys = np.linspace(1.60, Y_TAIL + 0.06, 34)
+    xs = np.linspace(-0.78, 0.78, 40)
+    ys = np.arange(-0.86, -0.575, 0.005)
     H = np.full((len(ys), len(xs)), np.nan)
     for j, y in enumerate(ys):
         for i, x in enumerate(xs):
             hit = bvh.ray_cast(Vector((x, y, 0.50)), Vector((0, 0, 1)))
             if hit[0] is not None and hit[1].z > 0:      # exited the body (started inside)
                 H[j, i] = hit[0].z
-    A = np.stack([np.ones_like(xs), xs ** 2, xs ** 4, xs ** 6, xs ** 8], 1)
+    A = np.stack([np.ones_like(xs), xs ** 2, xs ** 4, xs ** 6], 1)
     for j in range(len(ys)):
         ok = np.isfinite(H[j])
         if ok.sum() > 8:
-            fit, keep = _robust_fit(A, H[j])
+            fit, keep = _robust_fit(A, H[j], tol=0.006)
             H[j] = np.where(keep | ~ok, H[j], fit)
     # no body under a sample: leave it alone (the cutter rises out of the way)
-    H = np.where(np.isfinite(H), H + 0.006, 1.9)
-    cut = field_cutter("cut_spoiler", xs, ys, H, lambda u, v, h: (u, v, h), 2.0)
+    H = np.where(np.isfinite(H), H + 0.003, 1.9)
+    cut = field_cutter("cut_wipers", xs, ys, H, lambda u, v, h: (u, v, h), 2.0)
     boolean(ob, cut)
     delete_object(cut)
 
@@ -1728,9 +1760,10 @@ def strip_mirrors(ob):
     delete_object(cut)
 
 
-def drop_islands(ob, keep_share=0.02):
-    """Delete loose pieces (e.g. cut-off spoiler tips) smaller than
-    keep_share of the mesh."""
+def drop_islands(ob):
+    """Keep only the largest connected piece. After the voxel remesh,
+    anything not touching the body (wheels, cut-off spoiler tips, exhaust
+    tips) is a separate piece, and the script models all of those itself."""
     bm = bmesh.new()
     bm.from_mesh(ob.data)
     seen, islands = set(), []
@@ -1748,7 +1781,7 @@ def drop_islands(ob, keep_share=0.02):
                     seen.add(b)
                     stack.append(b)
         islands.append(isl)
-    small = [isl for isl in islands if len(isl) < keep_share * len(bm.verts)]
+    small = sorted(islands, key=len)[:-1]
     if small:
         bmesh.ops.delete(bm, geom=[v for isl in small for v in isl], context="VERTS")
         print(f"[body] dropped {len(small)} loose pieces")
@@ -1756,56 +1789,252 @@ def drop_islands(ob, keep_share=0.02):
     bm.free()
 
 
+def sdf_remesh(ob, isos, voxel):
+    """Rebuild ob from its signed distance field (OpenVDB, via geometry
+    nodes), once per entry of isos: the surface at that signed distance (m,
+    negative = inwards) from the previous one. The result is watertight, and
+    unlike moving vertices along normals, offsets never fold over."""
+    try:
+        bpy.context.preferences.experimental.use_new_volume_nodes = True
+    except AttributeError:
+        pass
+    ng = bpy.data.node_groups.new("sdf_remesh", "GeometryNodeTree")
+    ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    src = ng.nodes.new("NodeGroupInput").outputs[0]
+    for iso in isos:
+        to_grid = ng.nodes.new("GeometryNodeMeshToSDFGrid")
+        to_grid.inputs["Voxel Size"].default_value = voxel
+        to_grid.inputs["Band Width"].default_value = int(abs(iso) / voxel) + 3
+        ng.links.new(src, to_grid.inputs["Mesh"])
+        to_mesh = ng.nodes.new("GeometryNodeGridToMesh")
+        to_mesh.inputs["Threshold"].default_value = iso
+        ng.links.new(to_grid.outputs[0], to_mesh.inputs["Grid"])
+        src = to_mesh.outputs[0]
+    ng.links.new(src, ng.nodes.new("NodeGroupOutput").inputs[0])
+    mats = list(ob.data.materials)
+    mod = ob.modifiers.new("sdf", "NODES")
+    mod.node_group = ng
+    apply_modifiers(ob)
+    bpy.data.node_groups.remove(ng)
+    if not ob.data.polygons:
+        raise RuntimeError(f"{ob.name}: distance-field remesh came out empty")
+    ob.data.materials.clear()
+    for m in mats:
+        ob.data.materials.append(m)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    if bm.calc_volume(signed=True) < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
+        bm.to_mesh(ob.data)
+    bm.free()
+
+
+def _in_poly(x, y, poly):
+    inside = False
+    for i in range(len(poly)):
+        (x1, y1), (x2, y2) = poly[i - 1], poly[i]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
+
+def in_glass(grow=0.03):
+    """Test (point, normal) -> True inside the (grown) glass areas."""
+    sides = [offset_poly(side_dlo_door(), grow), offset_poly(side_dlo_quarter(), grow)]
+    ws, bl = offset_poly(plan_windshield(), grow), offset_poly(plan_backlight(), grow)
+
+    def test(p, n):
+        if abs(n.x) > 0.5:
+            return abs(p.x) > 0.35 and any(_in_poly(p.y, p.z, s) for s in sides)
+        return ((p.z > 0.70 and _in_poly(p.x, p.y, ws)) or
+                (p.z > 0.93 and _in_poly(p.x, p.y, bl)))
+    return test
+
+
+def conform(bm, target, reach=0.10, skip=None):
+    """Move each vertex of bm along its normal onto target's outer surface
+    when that is within reach. Skipped or unmatched vertices (open windows,
+    spoiler pedestals, deep openings) get a smooth harmonic fill from their
+    neighbours, so e.g. a window becomes a surface spanning its frame."""
+    import numpy as np
+    bvh = bvh_of(target)
+    bm.normal_update()
+    bm.verts.index_update()
+    verts = bm.verts[:]
+    P = np.array([v.co[:] for v in verts])
+    N = np.array([v.normal[:] for v in verts])
+    d = np.full(len(verts), np.nan)
+    for i, v in enumerate(verts):
+        p, n = v.co, v.normal
+        if skip and skip(p, n):
+            continue
+        best = None
+        hit = bvh.ray_cast(p, n, reach)
+        if hit[0] is not None:
+            if hit[1].dot(n) > 0.3:                # leaving the target: its outer face
+                best = hit[3]
+            else:                                  # under a thin panel: its outer face
+                h2 = bvh.ray_cast(hit[0] + n * 1e-4, n, 0.02)
+                if h2[0] is not None and h2[1].dot(n) > 0.3:
+                    best = hit[3] + h2[3]
+        hit = bvh.ray_cast(p, -n, reach)
+        if hit[0] is not None and hit[1].dot(n) > 0.3 and (best is None or hit[3] < abs(best)):
+            best = -hit[3]
+        if best is not None:
+            d[i] = best
+    E = np.array([(e.verts[0].index, e.verts[1].index) for e in bm.edges])
+    deg = np.maximum(np.bincount(E.ravel(), minlength=len(verts)), 1)
+
+    def nb_mean(x):
+        s = np.zeros_like(x)
+        np.add.at(s, E[:, 0], x[E[:, 1]])
+        np.add.at(s, E[:, 1], x[E[:, 0]])
+        return s / deg
+
+    known = np.isfinite(d)
+    print(f"[body] conform: {known.mean() * 100:.0f}% of vertices matched")
+    x = np.where(known, d, 0.0)
+    # drop isolated outliers (a ray that found a seat through a window edge)
+    k = known.astype(float)
+    s = np.zeros(len(verts))
+    np.add.at(s, E[:, 0], x[E[:, 1]])
+    np.add.at(s, E[:, 1], x[E[:, 0]])
+    c = np.zeros(len(verts))
+    np.add.at(c, E[:, 0], k[E[:, 1]])
+    np.add.at(c, E[:, 1], k[E[:, 0]])
+    nbr = np.where(c > 0, s / np.maximum(c, 1), x)
+    known &= np.abs(x - nbr) < 0.02
+    x = np.where(known, d, np.nanmean(d))
+    for _ in range(3000):
+        x = np.where(known, x, nb_mean(x))
+    # larger patches that sit well below their surroundings in the glasshouse
+    # (sun visors, mirror, seat backs seen through an opening) are not skin
+    upper = P[:, 2] > 0.85
+    for _ in range(2):
+        low = x.copy()
+        for _ in range(300):
+            low = nb_mean(low)
+        known &= ~(upper & (np.abs(x - low) > 0.025))
+        x = np.where(known, d, x)
+        for _ in range(3000):
+            x = np.where(known, x, nb_mean(x))
+    for i, v in enumerate(verts):
+        v.co = Vector(P[i] + N[i] * x[i])
+
+
 def body_from_mesh(path):
-    """Body solid from a model file, plus a smoothed coarse copy that the
-    cavity and skin offsets are built from."""
-    if not os.path.isabs(path):
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    """Watertight body solid from a model file.
+
+    Open windows (a mesh with a modelled interior) are closed with the
+    lofted body pulled onto the mesh's window frames, which also fills the
+    cabin so the usual cavities hollow it out. A small distance-field
+    closing fills the mesh's own panel-line grooves (the panels are cut
+    again here, where the doors and lids really split)."""
     ob = import_mesh_file(path, "Body")
     print(f"[body] {os.path.basename(path)}: {tri_count(ob)} triangles")
-    fit_body_mesh(ob)
+    bm = bmesh.new()                            # glTF splits vertices at UV seams
+    bm.from_mesh(ob.data)                       # and sharp edges: weld them again
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5 * max(ob.dimensions))
+    bm.to_mesh(ob.data)
+    bm.free()
+    if ob.get("s15_body"):                      # already prepared (prepare_body)
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        check_manifold(bm, "body mesh")
+        bm.free()
+        shade_smooth(ob, 40)
+        return ob
+    fit_body_mesh(ob)                           # (finds the axles from the tyres)
+    drop_islands(ob)                            # loose wheels
     symmetrize_x(ob)
-    voxel_remesh(ob, BODY_VOXEL)
-    decimate(ob, min(1.0, BODY_TRIS / max(1, tri_count(ob))))
-    taubin(ob, 4)
-    strip_spoiler(ob)
+    # cabin filler: the loft, matched to the mesh, a few mm under its skin
+    bm = build_loft()
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=1, use_grid_fill=True)
+    conform(bm, ob, skip=in_glass())
+    fill = new_object("CabinFill", bm, ["Paint"], smooth_angle=None)
+    sdf_remesh(fill, [-0.004], 0.01)
+    decimate(fill, min(1.0, 60000 / tri_count(fill)))
+    box = volume("cabin_box", yr=(-0.80, 1.50), zr=(0.45, 2.0), mat="Paint")
+    boolean(fill, box, "INTERSECT")
+    delete_object(box)
+    join_into(ob, [fill])
+    sdf_remesh(ob, [0.01, -0.01], BODY_VOXEL)
+    decimate(ob, min(1.0, 4 * BODY_TRIS / max(1, tri_count(ob))))
+    strip_wipers(ob)
     strip_mirrors(ob)
     drop_islands(ob)
-    base = copy_object(ob, "OffsetBase")
-    voxel_remesh(base, 0.02)
-    taubin(base, 10)
-    base.hide_render = True
+    sdf_remesh(ob, [0.0], BODY_VOXEL)          # watertight again after the cuts
+    decimate(ob, min(1.0, BODY_TRIS / max(1, tri_count(ob))))
     bm = bmesh.new()
     bm.from_mesh(ob.data)
     check_manifold(bm, "body mesh")
     bm.free()
     shade_smooth(ob, 40)
-    return ob, base
+    return ob
+
+
+def prepare_body(src, dst):
+    """Run body_from_mesh on a raw model file (e.g. straight from an
+    image-to-3D service) and save the resulting body solid as a small glTF
+    that later builds load as is."""
+    reset_scene()
+    setup_materials()
+    global BODY_MESH
+    BODY_MESH = src
+    ob = body_from_mesh(src)
+    ob["s15_body"] = 1
+    ob.data["s15_body"] = 1
+    shade_smooth(ob, 180)                       # no sharp edges: keeps vertices shared
+    _select_only([ob], ob)
+    os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
+    bpy.ops.export_scene.gltf(filepath=dst, export_format="GLB", use_selection=True,
+                              export_materials="NONE", export_extras=True)
+    print(f"[body] prepared {tri_count(ob)} triangles -> {dst}")
+
+
+def resolve_body_mesh():
+    """Absolute BODY_MESH path, or None (lofted body) if unset or missing."""
+    global BODY_MESH
+    if BODY_MESH and not os.path.isabs(BODY_MESH):
+        here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+        BODY_MESH = os.path.join(here, BODY_MESH)
+    if BODY_MESH and not os.path.exists(BODY_MESH):
+        print(f"[body] {BODY_MESH} not found, lofting the body instead")
+        BODY_MESH = None
+    if BODY_MESH and not hasattr(bpy.types, "GeometryNodeMeshToSDFGrid"):
+        print("[body] this Blender has no SDF grid nodes (needs 4.2+), lofting the body instead")
+        BODY_MESH = None
 
 
 def build_body():
     """Returns dict with the body shell and the reference solid."""
     if BODY_MESH:
-        body, base = body_from_mesh(BODY_MESH)
+        body = body_from_mesh(BODY_MESH)
     else:
-        body, base = new_object("Body", build_loft(), ["Paint"], smooth_angle=None), None
+        body = new_object("Body", build_loft(), ["Paint"], smooth_angle=None)
     ref = copy_object(body, "BodyRef")          # untouched outer solid
     ref.hide_render = True
 
     def offset(name, t, mat, iters=10):
-        bm = bm_from_object(base) if base else build_loft(2)
-        return new_object(name, inner_offset(bm, t, iters=iters), [mat], smooth_angle=None)
+        if BODY_MESH:                           # exact offsets from the distance field
+            ob = copy_object(body, name)
+            sdf_remesh(ob, [-t], 0.01)
+            decimate(ob, min(1.0, 25000 / tri_count(ob)))   # cavity walls: rarely seen
+            ob.data.materials.clear()
+            ob.data.materials.append(MATS[mat])
+            return ob
+        bm = build_loft(2)
+        inner_offset(bm, t, iters=iters)
+        return new_object(name, bm, [mat], smooth_angle=None)
 
     inner = offset("Inner", 0.028, "Interior")
     layer_in = offset("LayerIn", 0.036, "Paint")
     # the skin layer must poke out past the body surface: exact booleans
-    # do not like coincident faces (a mesh body's offsets come from a
-    # smoothed copy, so give it more room)
-    layer = offset("Layer", -0.025 if base else -0.015, "Paint", iters=4)
+    # do not like coincident faces
+    layer = offset("Layer", -0.015, "Paint", iters=4)
     boolean(layer, layer_in)
     delete_object(layer_in)
-    if base:
-        delete_object(base)
     for ob in (inner, layer):
         ob.hide_render = True
     cab, bay, boot = build_cavities(inner)
@@ -1827,16 +2056,18 @@ def cut_windows(body, ref):
         for sd, xr in (("L", (0.35, 1.3)), ("R", (-1.3, -0.35))):
             cut = volume(f"cut_{key}_{sd}", side=outline, xr=xr, mat="BlackMatte")
             glass[f"Glass_{key}_{sd}"] = surface_patch(
-                ref, cut, f"Glass_{key}_{sd}", inset=0.007, thickness=0.004)
+                ref, cut, f"Glass_{key}_{sd}", inset=0.007, thickness=0.004,
+                smooth=bool(BODY_MESH))
             boolean(body, cut)
             delete_object(cut)
     cut = volume("cut_windshield", plan=plan_windshield(), zr=(0.70, 1.8), mat="BlackMatte")
     glass["Glass_Windshield"] = surface_patch(ref, cut, "Glass_Windshield", inset=0.006,
-                                        thickness=0.005)
+                                        thickness=0.005, smooth=bool(BODY_MESH))
     boolean(body, cut)
     delete_object(cut)
     cut = volume("cut_backlight", plan=plan_backlight(), zr=(0.93, 1.8), mat="BlackMatte")
-    glass["Glass_Rear"] = surface_patch(ref, cut, "Glass_Rear", inset=0.006, thickness=0.005)
+    glass["Glass_Rear"] = surface_patch(ref, cut, "Glass_Rear", inset=0.006, thickness=0.005,
+                                        smooth=bool(BODY_MESH))
     boolean(body, cut)
     delete_object(cut)
     return glass
@@ -1928,15 +2159,20 @@ def cut_lamps_and_openings(body, ref):
     return out
 
 
-def split_panel(body, layer, name, gap=0.0022, mats=None, **vol_kw):
-    """Separate an opening panel (door/hood/boot lid) from the body shell."""
+def split_panel(body, layer, name, gap=0.0022, mats=None, exclude=None, **vol_kw):
+    """Separate an opening panel (door/hood/boot lid) from the body shell.
+    exclude: a volume that stays with the body whatever the outline says."""
     inner_v = volume("pv_" + name, grow=-gap, mat="Paint", **vol_kw)
     boolean(inner_v, layer, "INTERSECT")
+    if exclude:
+        boolean(inner_v, exclude)
     panel = copy_object(body, name)
     boolean(panel, inner_v, "INTERSECT")
     delete_object(inner_v)
     outer_v = volume("pg_" + name, grow=gap, mat="Paint", **vol_kw)
     boolean(outer_v, layer, "INTERSECT")
+    if exclude:
+        boolean(outer_v, exclude)
     boolean(body, outer_v)
     delete_object(outer_v)
     return panel
@@ -1947,8 +2183,16 @@ def build_panels(body, layer):
     dl = split_panel(body, layer, "Door_L", side=side_door_outline(), xr=(0.30, 1.3))
     dr = split_panel(body, layer, "Door_R", side=side_door_outline(), xr=(-1.3, -0.30))
     panels["Door_L"], panels["Door_R"] = dl, dr
-    panels["Hood"] = split_panel(body, layer, "Hood", plan=plan_hood_outline(),
-                                 zr=(0.50, 2.0))
+    # only the band under the bonnet top, and never the headlight housings
+    # below its front corners
+    ys = [-2.40 + 0.05 * k for k in range(37)]
+    band = [(y, Z_TOP(max(y, -2.30)) - 0.10) for y in ys] + [(ys[-1], 2.0), (ys[0], 2.0)]
+    hl, tl = lamp_volumes(0.026, "_hood")
+    delete_object(tl)
+    both_sides(hl)
+    panels["Hood"] = split_panel(body, layer, "Hood", plan=plan_hood_outline(), side=band,
+                                 zr=(0.50, 2.0), exclude=hl)
+    delete_object(hl)
     plan, rear = trunk_outlines()
     panels["Trunk"] = split_panel(body, layer, "Trunk", plan=plan, front=rear,
                                   zr=(0.60, 2.0), yr=(1.40, 2.8))
@@ -2308,6 +2552,15 @@ def build_exterior_details(ref):
     make("Wipers", wb, ["BlackMatte"])
 
     # ---- Spec R rear spoiler (rides on the boot lid) ------------------
+    # a mesh body keeps its own moulded spoiler (it is inside the skin layer,
+    # so it opens with the boot lid); only the stop lamp is added to it
+    if BODY_MESH:
+        wlight = bmesh.new()
+        top = max((ray(bvh, (0.0, y, 3.0), (0, 0, -1))[0] for y in
+                   [1.75 + 0.01 * k for k in range(45)]),
+                  key=lambda h: h.z if h is not None else -1.0)
+        add_box(wlight, top + Vector((0, 0.0, 0.004)), (0.22, 0.030, 0.008), bevel=0.002)
+        make("Light_Brake_C", wlight, ["LensRed"], "Trunk")
     wing, wlight = bmesh.new(), bmesh.new()
     foil = [(0.0, 0.0), (0.014, 0.011), (0.05, 0.019), (0.10, 0.022), (0.15, 0.020),
             (0.20, 0.014), (0.235, 0.007), (0.248, 0.004), (0.248, -0.002),
@@ -2337,8 +2590,9 @@ def build_exterior_details(ref):
     bmesh.ops.recalc_face_normals(wing, faces=wing.faces)
     add_box(wlight, Vector((0.0, 1.975, 1.050)), (0.22, 0.040, 0.006), bevel=0.002,
             rot=Matrix.Rotation(math.radians(-5), 3, "X"))
-    make("Wing", wing, ["Paint"], "Trunk", smooth=45)
-    make("Light_Brake_C", wlight, ["LensRed"], "Trunk")
+    if not BODY_MESH:
+        make("Wing", wing, ["Paint"], "Trunk", smooth=45)
+        make("Light_Brake_C", wlight, ["LensRed"], "Trunk")
 
     # ---- exhaust (single tip, car's left) ------------------------------
     ex, exd = bmesh.new(), bmesh.new()
@@ -3906,6 +4160,7 @@ def reset_scene():
 def build():
     reset_scene()
     setup_materials()
+    resolve_body_mesh()
     B = build_body()
     body = B["body"]
     parts = {"Body": body}
@@ -3953,6 +4208,9 @@ def parse_args():
             global BODY_MESH
             BODY_MESH = argv[i + 1] if argv[i + 1].lower() != "loft" else None
             i += 1
+        elif a == "--prepare-body":
+            opts["prepare"] = (argv[i + 1], argv[i + 2])
+            i += 2
         elif a == "--export":
             opts["export"] = True
         elif a == "--no-export":
@@ -3973,6 +4231,9 @@ def parse_args():
 
 def main():
     opts = parse_args()
+    if opts.get("prepare"):
+        prepare_body(*opts["prepare"])
+        return
     parts = build()
     if opts["open"]:
         open_panels(parts)

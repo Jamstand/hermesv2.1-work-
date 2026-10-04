@@ -1,6 +1,8 @@
 # Nissan Silvia S15 Spec R for Roblox
 
-A Nissan Silvia S15 Spec R built in Blender for Roblox: JDM right-hand drive, Lightning Yellow, stock 17" five-spoke wheels at factory ride height, factory Spec R aero, and a full SR20DET engine bay. Doors, bonnet and boot open, the lights work, and the parts are laid out for **A-Chassis**. The body was refined against a set of AI-generated reference images of a bone-stock car (see [Reference images](#reference-images)).
+A Nissan Silvia S15 Spec R built in Blender for Roblox: JDM right-hand drive, Lightning Yellow, stock 17" five-spoke wheels at factory ride height, factory Spec R aero, and a full SR20DET engine bay. Doors, bonnet and boot open, the lights work, and the parts are laid out for **A-Chassis**.
+
+The outer body shape comes from an AI 3D reconstruction of a stock car (Tripo, run on Higgsfield from AI reference photos), fitted to the real S15's dimensions. Everything that has to work in Roblox is modelled by the generator script: the opening panels, glass, lights, interior, engine bay, wheels and underbody. See [How the body was made](#how-the-body-was-made).
 
 ![front three-quarter](previews/front34.jpg)
 
@@ -12,33 +14,62 @@ A Nissan Silvia S15 Spec R built in Blender for Roblox: JDM right-hand drive, Li
 
 ## What's in the model
 
-* **Body**: built to real S15 dimensions (4445 × 1695 × 1285 mm, 2525 mm wheelbase, 1470/1460 mm track). It's a hollow shell with a real cabin, engine bay and boot. It has panel gaps, the shoulder crease, side skirts, a fuel flap on the right rear quarter, a plate recess and a crease across the rear bumper. The roofline, glasshouse, bonnet, boot deck, sills and wheel arches follow the side reference.
-* **Opening panels**: both doors, the bonnet and the boot are separate parts with hinge data. The door glass, mirrors, door cards and handles move with the doors. The rear wing, high-mount stop lamp and badges move with the boot lid.
-* **Lights**: the headlights have chrome reflector bowls, a projector, a high beam and an amber indicator behind a clear lens. The tail lights are smoked units with an amber indicator strip along the top, two round red tail/brake bulbs, and a clear reverse section on the inner end. There are also side repeaters, plate lamps, the wing brake light and dash needles, and each one is its own `Light_*` part.
-* **Exterior**: body-coloured bumpers with no lip or valance (bone stock), a horizontal-slat centre grille with the intercooler behind it, mesh in the outer openings, aero door mirrors, flap door handles with key locks, black B-pillars and window frames, wipers, the Spec R pedestal wing, a single exhaust on the left, and JDM plates front and rear. The badges are an "S" on the bonnet, plus a Nissan roundel, a "Silvia" script and "Spec R" with a red R on the boot.
+* **Body**: the reconstructed S15 shell, scaled to real S15 dimensions (4445 × 1695 × 1285 mm, 2525 mm wheelbase, 1470/1460 mm track) with the wheels on the real axle lines. It's hollow, with a real cabin, engine bay and boot. The panel gaps for the doors, bonnet and boot are cut where those panels split, plus the bumper seams and a fuel flap on the right rear quarter.
+* **Opening panels**: both doors, the bonnet and the boot are separate parts with hinge data. The door glass, mirrors, door cards and handles move with the doors. The Spec R wing (part of the reconstructed body), the high-mount stop lamp and the badges move with the boot lid.
+* **Lights**: the headlights have chrome reflector bowls, a projector, a high beam and an amber indicator behind a clear lens. The tail lights are smoked units with an amber indicator strip along the top, two round red tail/brake bulbs, and a clear reverse section on the inner end. There are also side repeaters, plate lamps, the wing stop lamp and dash needles, and each one is its own `Light_*` part.
+* **Exterior**: a horizontal-slat centre grille with the intercooler behind it, honeycomb mesh in the outer openings, aero door mirrors, flap door handles with key locks, black B-pillars and window frames, wipers, a single exhaust on the left, and JDM plates front and rear. The badges are an "S" on the bonnet, plus a Nissan roundel, a "Silvia" script and "Spec R" with a red R on the boot.
 * **Interior (RHD)**: dashboard with the gauge binnacle and three dials, a boost gauge pod, centre stack with head unit, climate dials and vents, steering column and three-spoke wheel, pedals, centre console with gear lever and handbrake over the transmission tunnel, front bucket seats with bolsters and inserts, the 2+2 rear bench, door cards, headliner, sun visors, rear-view mirror, floor mats, parcel-shelf speakers, and a spare wheel in the boot.
 * **SR20DET bay**: red twin-cam valve cover with coil packs, intake plenum and runners, T28 turbo with downpipe, front-mount intercooler and piping, radiator, fan and hoses, air box, battery, fuse box, reservoirs, brake booster and master cylinder (driver's side), strut tops and a strut-tower bar, and a wiring loom.
 * **Wheels**: 215/45R17 tyres with tread grooves and shoulder blocks; 17x7 rims with five wide, slightly twisted spokes and a concave face, five lug nuts, a centre cap and a valve stem; plus discs and calipers.
 * **Underbody**: suspension arms, coilovers, half shafts, the R200 diff, driveshaft, gearbox, fuel tank and the full exhaust run.
 
-**Size:** 103 MeshParts and 128,165 triangles. The largest single part has 16,847, under Roblox's 20k-per-mesh cap. The full list is in [`export/parts.txt`](export/parts.txt).
+**Size:** 107 MeshParts and about 190k triangles (189,552). The largest single part has 11,666, under Roblox's 20k-per-mesh cap. The full list is in [`export/parts.txt`](export/parts.txt). The body shell is 55k of those triangles. For a lighter car, lower `BODY_TRIS` near the top of the script and re-run `--prepare-body` (see [Changing it](#changing-it)).
 
-## Reference images
+## How the body was made
 
-The images in [`refs/`](refs) were made with Higgsfield (GPT Image 2.5). First a studio front three-quarter master shot, then side, front and rear three-quarter views generated from that master so the car stays consistent, plus one hero shot on a mountain pass at golden hour. They cost 5 credits. A straight rear view was also requested, but Higgsfield refused it because the account had hit its daily generation limit, so the rear three-quarter view was used for the back of the car.
+### 1. Reference photos
+
+The images in [`refs/`](refs) were made with Higgsfield (GPT Image 2.5). First a studio front three-quarter master shot. Then side, front, rear three-quarter and straight rear views were generated from that master so the car stays consistent. There's also one hero shot on a mountain pass at golden hour.
 
 | | |
 |---|---|
 | ![master, front three-quarter](refs/master_front34.jpg) | ![side](refs/side_left.jpg) |
-| ![front](refs/front.jpg) | ![rear three-quarter](refs/rear34.jpg) |
+| ![front](refs/front.jpg) | ![rear](refs/rear.jpg) |
 
 ![hero shot](refs/hero_touge.jpg)
 
-**How they were used.** The side view was scaled using the wheelbase. The model's outline was then rendered with an orthographic camera at the same scale and overlaid on the image ([`previews/side_overlay.jpg`](previews/side_overlay.jpg), model in red). The roof, windshield, bonnet, deck, wing and sills were adjusted until they matched within about 1–2 cm. The front view was measured on the bumper plane, scaled by the plate width, to place the headlights, intakes and plate. The rear three-quarter view set the tail-light layout and badges. The paint colour was sampled from the references. [`previews/compare_reference.jpg`](previews/compare_reference.jpg) puts the references and the model side by side:
+### 2. AI 3D models
+
+Two image-to-3D models were tried on Higgsfield:
+
+* **Hunyuan3D v3**, from the master photo alone.
+* **Tripo H3.1 multiview**, from four views in order: front, left side, rear, and the left side mirrored as the right side.
+
+Tripo's model was clearly better, especially at the rear, which Hunyuan had to guess. Tripo's is the one used.
+
+![raw AI models](previews/ai_bodies_raw.jpg)
+
+### 3. Turning it into a car body
+
+The raw model is a single 1.9-million-triangle mesh. It has the wheels, wing, mirrors, wipers and exhaust moulded on, open windows, and a rough interior. `s15_spec_r.py --prepare-body` turns it into [`body/s15_body.glb`](body) (55k triangles, 1 MB), which the build then loads:
+
+1. **Fit.** It's turned the right way round. The axles are found from the tyre contact patches and placed on the real wheelbase. The overhangs, width and height are scaled to the real car.
+2. **Symmetry.** The right half is kept and mirrored. This also drops the AI exhaust, because the script adds the stock one.
+3. **Close the cabin.** The open windows and cabin are filled with the script's own lofted body, pulled onto the reconstruction's window frames (the window areas are filled in smoothly). That way the usual cavities can hollow it out, and the glass gets a surface that spans the frames.
+4. **Smooth and seal.** The shape is rebuilt from its signed distance field (OpenVDB grid nodes) with a 1 cm closing. This makes it watertight and fills the AI's own panel-line grooves, because the real panel gaps are cut later where the panels actually split.
+5. **Strip parts the script adds.** The moulded wheels, mirrors and wipers are cut off. The wing is kept: it's the right shape, and it sits inside the boot lid's skin, so it opens with the boot.
+
+After that, the body goes through the same cuts as before: windows, lamps, intakes, cabin/bay/boot cavities, and the door, bonnet and boot splits. The inner offsets for the cavities and panel skins also come from the distance field, so they can't fold over.
+
+### 4. Checking it against the references
+
+The model was rendered from matching camera positions ([`previews/compare_reference.jpg`](previews/compare_reference.jpg)). Its silhouette was also rendered at the side photo's pixel scale and drawn over it ([`previews/side_overlay.jpg`](previews/side_overlay.jpg), model in red).
 
 ![references vs model](previews/compare_reference.jpg)
 
-**Where the model intentionally differs.** The AI side view draws the front overhang about 13 cm shorter (0.84 m) and the tail slightly shorter than a real S15. The model keeps the real 4445 mm length and 975 mm front overhang, so in the overlay its bumpers extend past the image at both ends.
+The model keeps the real 4445 mm length and 975 mm front overhang. The AI side photo draws the front overhang about 13 cm shorter, so the bumpers extend past it in the overlay.
+
+**Credits used:** 39 Higgsfield credits in total. 5 for the first reference set, then 1 for the rear view, 15 for Hunyuan3D and 18 for Tripo.
 
 ## Files
 
@@ -50,8 +81,9 @@ The images in [`refs/`](refs) were made with Higgsfield (GPT Image 2.5). First a
 | `export/S15_SpecR.glb` | glTF copy, in metres. |
 | `export/parts.txt` | Every part with its assembly, material and triangle count. |
 | `s15_spec_r.py` | The generator. Re-run it to rebuild everything. |
+| `body/s15_body.glb` | The prepared body shape the generator loads. |
 | `refs/` | The Higgsfield reference images. |
-| `previews/` | Renders of the model, plus the reference comparison and side overlay. |
+| `previews/` | Renders of the model, the raw AI models, the reference comparison and the side overlay. |
 
 ## Putting it in Roblox
 
@@ -83,14 +115,16 @@ On a parked, anchored display car the panels animate with a tween. On a running 
 * **Paint:** set `PAINT` near the top of `s15_spec_r.py`. The presets are `lightning_yellow`, `pearl_white`, `sparkling_silver`, `brilliant_blue`, `super_black` and `active_red`. You can also just change the `Body_Paint`, `Door_*_Paint`, `Hood_Paint` and `Trunk_Paint` colours in Studio.
 * **Rebuild:** run `blender --background --python s15_spec_r.py` (or `-- --out <folder>`). In the Blender UI, use *Scripting → Open → Run Script*, which builds into a new `S15_SpecR` scene.
 * **Preview renders:** run `blender -b -P s15_spec_r.py -- --no-export --render --open --samples 64`.
+* **Old lofted body:** add `-- --body loft` to build the earlier body, which is lofted from design curves instead of the AI shape.
+* **Another AI model:** download the raw GLB and run `blender -b -P s15_spec_r.py -- --prepare-body raw.glb body/s15_body.glb`, then rebuild. The fit, cleanup and cabin fill are automatic. A different model may need the window outlines adjusted (`plan_windshield` has the measured taper of this one).
 
 ## Notes and limits
 
-* The model is generated from code: lofted cross-sections plus exact booleans. It isn't a scan. The side profile now closely matches the reference. The headlight and tail-light outlines, the bumper openings, the wing and the stance are close too. The finer surfacing is still an approximation, especially how the nose rounds into the headlights and how deep the lamps look.
-* With the bonnet open, a few thin dark slivers show along its front edge near the headlight pockets.
+* The body is an AI reconstruction made from AI-generated photos, not a scan of a real car. It reads as an S15 from every angle, but small details are the AI's interpretation, and the 1 cm smoothing softens them further: the exact headlight and bumper surfacing, crease sharpness and the shape of the intakes.
+* Building with the AI body needs Blender 4.2's OpenVDB grid nodes (the script switches them on). On an older Blender, the script falls back to the lofted body.
 * I couldn't open Roblox Studio here. The generated Luau, including the three scripts it creates, passes a type check against Roblox's API definitions (`luau-lsp`) and compiles, but it hasn't been run in Studio. A-Chassis builds also differ between versions. If yours already welds `Misc` or uses different `Values` names, adjust `S15_Panels` or the plugin to match.
-* The previous version of `S15_Setup.lua` had a bug: a loop variable reused the name of the scale factor, so it stopped with an error while building the wheels. This version fixes it. If you ran the old one, delete that model and run the new script on a fresh import.
+* The first version of `S15_Setup.lua` had a bug that stopped it while building the wheels. If you ran that one, delete the model and run the current script on a fresh import.
 * The calipers go in each wheel's `Fixed` model so they don't spin. If your A-Chassis version doesn't support `Fixed`, put them in `Parts` or weld them to the body.
 * Stock S15 Spec Rs came with 16" or 17" wheels depending on the package. This one uses 17s (`TYRE_*` and `RIM_IN` in the script).
 
-Reference dimensions: [auto-data.net](https://www.auto-data.net/en/nissan-silvia-s15-2.0-i-16v-t-250hp-automatic-24949), [carfromjapan.com](https://carfromjapan.com/specifications/nissan/silvia/581389f42afaa2c4b2869497), [supercars.net](https://www.supercars.net/blog/1999-nissan-silvia-spec-r/). Roblox import settings: [create.roblox.com/docs/art/blender](https://create.roblox.com/docs/art/blender). Reference images: generated with Higgsfield for this project.
+Reference dimensions: [auto-data.net](https://www.auto-data.net/en/nissan-silvia-s15-2.0-i-16v-t-250hp-automatic-24949), [carfromjapan.com](https://carfromjapan.com/specifications/nissan/silvia/581389f42afaa2c4b2869497), [supercars.net](https://www.supercars.net/blog/1999-nissan-silvia-spec-r/). Roblox import settings: [create.roblox.com/docs/art/blender](https://create.roblox.com/docs/art/blender). Reference images and the body reconstruction: generated with Higgsfield (GPT Image 2.5, Tripo H3.1) for this project.
