@@ -294,7 +294,12 @@ def setup_materials():
             paint.node_tree.nodes["Principled BSDF"].inputs[key].default_value = 0.1
             break
     grazing_falloff(paint)
-    material("BlackGloss", (0.01, 0.01, 0.012), rough=0.18, coat=0.5)
+    # gloss black trim fades out its reflections at grazing angles too, and
+    # sooner than the paint: the door frames' top edges, seen edge-on past
+    # the A-pillar tops in the front views, mirrored the top card as a
+    # light-grey sliver
+    grazing_falloff(material("BlackGloss", (0.01, 0.01, 0.012), rough=0.18, coat=0.5),
+                    start=0.70, end=0.88, coat=0.0, spec=0.0)
     material("BlackMatte", (0.018, 0.018, 0.02), rough=0.75)
     material("Rubber", (0.012, 0.012, 0.012), rough=0.85)
     material("Glass", (0.05, 0.065, 0.065), rough=0.02, alpha=0.38,
@@ -2512,18 +2517,30 @@ def cut_lamps_and_openings(body, ref):
         paint_faces(body, lambda c, n: -2.25 < c.y < -1.85 and
                     any(_in_poly(c.x, c.z, q) for q in polys), "BlackMatte")
         # scuttle: between the bonnet's rear edge and the screen, and only
-        # inboard of the bonnet's side line carried on back to the screen
-        # (parallel to the screen's edge). Outboard of it are the A-pillar
-        # feet and the wing tops behind the bonnet's rear corners, which
-        # stay body colour; the faces are split along that line first so
-        # the black ends in a clean edge.
+        # inboard of the bonnet's side line carried on back to the screen.
+        # Outboard of it are the A-pillar feet and the wing tops behind the
+        # bonnet's rear corners, which stay body colour. That line runs
+        # along the floor of the trough between the scuttle and the raised
+        # pillar foot (x 0.645-0.65, measured on body/s15_body.glb), so the
+        # black stops where the foot's inboard wall rises; a line parallel
+        # to the screen's edge crossed the trough diagonally and wrapped the
+        # black round the foot. The faces are split along that line and
+        # along the bonnet's rear shut line (y -0.80) first, so the black
+        # ends in clean edges: split by face centre, the shut line left
+        # yellow teeth on the scuttle and black slivers on the bonnet's edge.
+        x0 = X_RAIL(-0.75) - 0.006                  # the bonnet's side line,
+        k = (X_RAIL(-0.80) - X_RAIL(-0.70)) / 0.10   # straight: slope -dx/dy
+
         def cowl_x(y):
-            return screen_edge_x(y) - 0.043        # bonnet side line at y -0.80
-        k = (screen_edge_x(-0.80) - screen_edge_x(-0.70)) / 0.10    # its slope, -dx/dy
+            return x0 - k * (y + 0.75)
+
         split_faces(body, [((sx * cowl_x(-0.75), -0.75, 0.85), (sx, k, 0.0),
                             lambda c, sx=sx: sx * c.x > 0) for sx in (1, -1)],
                     lambda c, n: -0.83 < c.y < -0.66 and c.z > 0.78 and
                     abs(abs(c.x) - cowl_x(c.y)) < 0.05)
+        split_faces(body, [((0.0, -0.80, 0.85), (0.0, 1.0, 0.0), lambda c: True)],
+                    lambda c, n: -0.83 < c.y < -0.77 and c.z > 0.78 and
+                    abs(c.x) < cowl_x(c.y) + 0.05)
         # (down to 0.81: the scuttle dips to 0.82 just inboard of that line,
         # ahead of the A-pillar feet, and a higher floor left yellow teeth)
         paint_faces(body, lambda c, n: -0.80 < c.y < -0.69 and c.z > 0.81 and
@@ -2602,6 +2619,11 @@ def build_panels(body, layer):
     panels["Hood"] = split_panel(body, layer, "Hood", plan=plan_hood_outline(), side=band,
                                  zr=(0.50, 2.0), exclude=hl)
     delete_object(hl)
+    if BODY_MESH:   # the scuttle's face of the bonnet's rear shut line is black like
+        # the scuttle (cut faces take body colour): seen down the gap it drew a
+        # yellow hairline between the bonnet and the black
+        paint_faces(body, lambda c, n: -0.805 < c.y < -0.785 and n.y < -0.5 and
+                    c.z > 0.78 and abs(c.x) < X_RAIL(c.y) - 0.006, "BlackMatte")
     plan, rear = trunk_outlines()
     panels["Trunk"] = split_panel(body, layer, "Trunk", plan=plan, front=rear,
                                   zr=(0.60, 2.0), yr=(1.40, 2.8))
@@ -3184,6 +3206,53 @@ def detail_doors(panels, ref):
             c = poly.center
             if poly.material_index == pi and c.z > belt(c.y):
                 poly.material_index = bi
+        if BODY_MESH:
+            fill_door_frame(door, sx)
+
+
+def fill_door_frame(door, sx, y0=-0.50, y1=-0.16, step=0.02, inset=0.001):
+    """Close the door's window frame along the A-pillar. The reconstruction's
+    pillar is not shaved, and its cabin-side skin rises into the frame band
+    (between the glass and the door's top edge): from y -0.46 to -0.26 the
+    band is cut into an inner and an outer strip with nothing between them,
+    which an open door shows as a separate black spike with a yellow wedge
+    (whatever is behind) between the prongs. The band's convex section at
+    y stations, set just inside the skin, is hulled between neighbouring
+    stations into closed convex blocks that bridge the two strips."""
+    bm = bmesh.new()
+    bm.from_mesh(door.data)
+    if MATS["BlackMatte"].name not in [m.name if m else "" for m in door.data.materials]:
+        door.data.materials.append(MATS["BlackMatte"])
+    names = [m.name if m else "" for m in door.data.materials]
+    mi = names.index(MATS["BlackMatte"].name)
+    rings = []
+    for k in range(int(round((y1 - y0) / step)) + 1):
+        y = y0 + step * k
+        pts = set()
+        for e in bm.edges:
+            a, b = e.verts[0].co, e.verts[1].co
+            if (a.y - y) * (b.y - y) < 0.0:
+                p = a.lerp(b, (y - a.y) / (b.y - a.y))
+                if p.z > Z_RAIL(y) - 0.04 and sx * p.x > 0.4:
+                    pts.add((round(p.x, 4), round(p.z, 4)))
+        hull = _convex_hull(pts) if len(pts) >= 3 else []
+        if len(hull) >= 3:
+            rings.append([Vector((x, y, z)) for x, z in offset_poly(hull, -inset)])
+    new = []
+    for ra, rb in zip(rings, rings[1:]):
+        res = bmesh.ops.convex_hull(bm, input=[bm.verts.new(p) for p in ra + rb])
+        junk = list({g for g in res["geom_interior"] + res["geom_unused"]
+                     if isinstance(g, bmesh.types.BMVert)})
+        new += [g for g in res["geom"] if isinstance(g, bmesh.types.BMFace)]
+        if junk:
+            bmesh.ops.delete(bm, geom=junk, context="VERTS")
+    new = [f for f in new if f.is_valid]
+    for f in new:
+        f.material_index = mi
+    bmesh.ops.recalc_face_normals(bm, faces=new)
+    bm.to_mesh(door.data)
+    bm.free()
+    door.data.update()
 
 
 # --------------------------------------------------------------------------
@@ -3445,6 +3514,20 @@ def build_interior(body):
                                         (-0.70, 0.822), (-0.73, 0.792), (-1.2, 0.792),
                                         (-1.2, -0.5)],
                       xr=(-1.0, 1.0), mat="Interior")
+        boolean(parts["Dashboard"], clip, "INTERSECT")
+        delete_object(clip)
+        # and its ends stay inside the door and pillar skins: above the belt
+        # the sail, the A-pillar feet and the door tops curve inboard to
+        # x 0.65-0.70 (measured: the cabin-side skin at z 0.82 / 0.84 / 0.86
+        # is at |x| 0.70 / 0.69 / 0.65), so the square top corners of the
+        # dash (|x| 0.715) poked through and showed as a dark tooth in the
+        # door's front shut line beside the right A-pillar foot. They are
+        # chamfered in front view.
+        ends = [(0.725, 0.788), (0.690, 0.813), (0.668, 0.830), (0.644, 0.848),
+                (0.644, 2.0)]                  # (x 0.715 at z 0.795)
+        clip = volume("cut_dash_ends", front=[(-x, z) for x, z in reversed(ends)]
+                      + [(-0.725, -0.5), (0.725, -0.5)] + ends,
+                      yr=(-1.2, 0.5), mat="Interior")
         boolean(parts["Dashboard"], clip, "INTERSECT")
         delete_object(clip)
     # ---- boot: spare wheel ----------------------------------------------
